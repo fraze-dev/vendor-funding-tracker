@@ -1,0 +1,61 @@
+# Demo requests. In VS Code, click "Send Request" above each one (C# Dev Kit or REST Client extension).
+@baseUrl = http://localhost:5041
+
+### List vendors
+GET {{baseUrl}}/api/vendors
+
+### Q3 funding for Sunshine Citrus Co. (the demo endpoint)
+GET {{baseUrl}}/api/vendors/1/funding-summary?period=2026-Q3
+
+### Same vendor, one month
+GET {{baseUrl}}/api/vendors/1/funding-summary?period=2026-08
+
+### Deals for a vendor
+GET {{baseUrl}}/api/vendors/2/deals
+
+### Create a vendor
+POST {{baseUrl}}/api/vendors
+Content-Type: application/json
+
+{
+  "vendorNumber": "V1004",
+  "name": "Lakeland Bakery Supply"
+}
+
+### Create a scan-down deal
+POST {{baseUrl}}/api/vendors/1/deals
+Content-Type: application/json
+
+{
+  "dealNumber": "D-24030",
+  "description": "Holiday OJ feature",
+  "type": "ScanDown",
+  "startDate": "2026-11-15",
+  "endDate": "2026-12-31",
+  "sku": "100245",
+  "ratePerUnit": 0.35
+}
+
+### Validation errors (end before start, missing rate)
+POST {{baseUrl}}/api/vendors/1/deals
+Content-Type: application/json
+
+{
+  "dealNumber": "D-BAD",
+  "description": "Broken deal",
+  "type": "ScanDown",
+  "startDate": "2026-12-31",
+  "endDate": "2026-11-01",
+  "sku": "100245"
+}
+
+### Import sales
+POST {{baseUrl}}/api/sales
+Content-Type: application/json
+
+[
+  { "storeNumber": "S0001", "sku": "100245", "saleDate": "2026-11-16", "unitsSold": 42, "netSales": 209.58 }
+]
+
+### Health
+GET {{baseUrl}}/health

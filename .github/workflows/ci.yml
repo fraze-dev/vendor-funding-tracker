@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # Integration tests start SQL Server in Docker via Testcontainers; ubuntu runners have Docker built in.
+      - name: Test
+        run: >
+          dotnet test --no-build --configuration Release
+          --logger "trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+
+      - name: Check for EF model changes without a migration
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes \
+            --project src/VendorFunding.Infrastructure \
+            --startup-project src/VendorFunding.Api \
+            --configuration Release --no-build
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults

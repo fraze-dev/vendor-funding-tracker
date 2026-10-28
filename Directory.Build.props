@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Warnings fail the build in GitHub Actions (which sets CI=true) but not locally. -->
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
