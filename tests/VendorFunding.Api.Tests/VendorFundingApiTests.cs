@@ -61,6 +61,20 @@ public class VendorFundingApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task Malformed_date_returns_bad_request_naming_the_field()
+    {
+        var body = new StringContent(
+            """[{ "storeNumber": "S0001", "sku": "100245", "saleDate": "10/28/2026", "unitsSold": 1, "netSales": 4.99 }]""",
+            System.Text.Encoding.UTF8,
+            "application/json");
+
+        var response = await _client.PostAsync("/api/sales", body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("saleDate", await response.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Funding_summary_combines_scan_down_and_lump_sum_deals()
     {
         var vendor = await CreateVendorAsync("Funding Vendor");

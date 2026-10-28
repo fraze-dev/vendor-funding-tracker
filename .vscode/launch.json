@@ -6,7 +6,6 @@
       "type": "dotnet",
       "request": "launch",
       "projectPath": "${workspaceFolder}/src/VendorFunding.Api/VendorFunding.Api.csproj",
-      "launchConfigurationId": "TargetFramework=;http",
       "preLaunchTask": "Start SQL Server"
     }
   ]

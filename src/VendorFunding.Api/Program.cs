@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using VendorFunding.Api;
 using VendorFunding.Api.Endpoints;
 using VendorFunding.Api.Services;
 using VendorFunding.Infrastructure.Persistence;
@@ -17,6 +18,9 @@ builder.Services.AddDbContext<VendorFundingDbContext>((services, options) =>
 builder.Services.AddScoped<FundingSummaryService>();
 builder.Services.AddHealthChecks().AddDbContextCheck<VendorFundingDbContext>("database");
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<BadRequestExceptionHandler>();
+// Outside Development, ASP.NET returns a bare 400 for unreadable bodies; throwing lets the handler above explain why.
+builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -25,7 +29,7 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
-app.UseHttpsRedirection();
+// No UseHttpsRedirection: locally we run plain HTTP, and in Azure App Service "HTTPS Only" handles the redirect.
 
 // API docs stay on in every environment because this is a portfolio demo.
 app.MapOpenApi();
