@@ -1,6 +1,6 @@
 # Vendor Funding Tracker
 
-![CI](https://github.com/OWNER/vendor-funding-tracker/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/fraze-dev/vendor-funding-tracker/actions/workflows/ci.yml/badge.svg)
 
 A .NET 10 API that tracks vendor promotional funding deals and calculates how much each vendor owes a retailer, based on daily store sales.
 

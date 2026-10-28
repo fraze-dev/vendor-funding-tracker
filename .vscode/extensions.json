@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-azuretools.vscode-containers",
+    "ms-azuretools.vscode-azureappservice",
+    "ms-azuretools.vscode-bicep",
+    "github.vscode-github-actions",
+    "ms-mssql.mssql",
+    "editorconfig.editorconfig"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start SQL Server",
+      "type": "shell",
+      "command": "docker compose up -d --wait",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test",
+      "type": "shell",
+      "command": "dotnet test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "Add EF migration",
+      "type": "shell",
+      "command": "dotnet ef migrations add ${input:migrationName} --project src/VendorFunding.Infrastructure --startup-project src/VendorFunding.Api --output-dir Persistence/Migrations",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "migrationName",
+      "type": "promptString",
+      "description": "Migration name (PascalCase, e.g. AddDealStatus)"
+    }
+  ]
+}

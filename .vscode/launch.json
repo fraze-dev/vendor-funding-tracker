@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API (http)",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/VendorFunding.Api/VendorFunding.Api.csproj",
+      "launchConfigurationId": "TargetFramework=;http",
+      "preLaunchTask": "Start SQL Server"
+    }
+  ]
+}
