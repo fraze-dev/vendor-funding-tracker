@@ -47,3 +47,121 @@ jobs:
         with:
           name: test-results
           path: TestResults
+
+  deploy:
+    needs: build-and-test
+    # Deploy from main only, and only once infra/bootstrap.ps1 has created the Azure variables.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.release.outputs.url }}
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write   # push the image to GitHub Container Registry
+      id-token: write   # sign in to Azure with OpenID Connect (no stored secrets)
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      APP_NAME: vendor-funding-api
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Build and push container image
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_SHA}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          docker build --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" --tag "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Check the image can be pulled anonymously
+        run: |
+          docker logout ghcr.io
+          if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
+            echo "::error::Azure pulls the image without credentials, so the package must be public. One-time fix: open https://github.com/users/${GITHUB_REPOSITORY_OWNER}/packages/container/package/${GITHUB_REPOSITORY#*/}, then Package settings > Change visibility > Public. Then re-run this job."
+            exit 1
+          fi
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure
+        id: infra
+        run: |
+          az config set extension.use_dynamic_install=yes_without_prompt --only-show-errors
+          # Keep the currently running image during the infra deploy; the new one goes live after migrations.
+          current=$(az containerapp show -g "$RESOURCE_GROUP" -n "$APP_NAME" --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+          outputs=$(az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "release-${GITHUB_RUN_NUMBER}" \
+            --template-file infra/main.bicep \
+            --parameters containerAppName="$APP_NAME" \
+                         containerImage="${current:-$IMAGE}" \
+                         sqlAdminGroupName="${{ vars.SQL_ADMIN_GROUP_NAME }}" \
+                         sqlAdminGroupObjectId="${{ vars.SQL_ADMIN_GROUP_ID }}" \
+            --query properties.outputs -o json)
+          for key in appUrl sqlServerName sqlServerFqdn databaseName apiIdentityName apiIdentityClientId; do
+            echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Open SQL firewall for this runner
+        run: |
+          ip=$(curl -fsS https://api.ipify.org)
+          az sql server firewall-rule create -g "$RESOURCE_GROUP" -s "${{ steps.infra.outputs.sqlServerName }}" \
+            -n "github-run-${GITHUB_RUN_ID}" --start-ip-address "$ip" --end-ip-address "$ip" -o none
+
+      - name: Apply database migrations
+        env:
+          # Signs in as the deploy identity via the Azure CLI session from azure/login.
+          ConnectionStrings__VendorFunding: >-
+            Server=tcp:${{ steps.infra.outputs.sqlServerFqdn }},1433;Database=${{ steps.infra.outputs.databaseName }};Authentication=Active Directory Default;Encrypt=True;Connect Timeout=120
+        run: |
+          dotnet tool restore
+          dotnet ef migrations bundle --project src/VendorFunding.Infrastructure --startup-project src/VendorFunding.Api \
+            --configuration Release --output efbundle --force
+          ./efbundle
+
+      - name: Grant the API access to the database
+        run: >
+          dotnet run infra/grant-db-access.cs --
+          "${{ steps.infra.outputs.sqlServerFqdn }}" "${{ steps.infra.outputs.databaseName }}"
+          "${{ steps.infra.outputs.apiIdentityName }}" "${{ steps.infra.outputs.apiIdentityClientId }}"
+
+      - name: Close SQL firewall
+        if: always() && steps.infra.outputs.sqlServerName != ''
+        run: |
+          az sql server firewall-rule delete -g "$RESOURCE_GROUP" -s "${{ steps.infra.outputs.sqlServerName }}" \
+            -n "github-run-${GITHUB_RUN_ID}" -o none || true
+
+      - name: Release new image
+        id: release
+        run: |
+          az containerapp update -g "$RESOURCE_GROUP" -n "$APP_NAME" --image "$IMAGE" -o none
+          echo "url=${{ steps.infra.outputs.appUrl }}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test
+        run: |
+          url="${{ steps.release.outputs.url }}"
+          # The app scales to zero and the database auto-pauses, so the first request can take a minute.
+          for attempt in $(seq 1 20); do
+            if curl -fsS --max-time 30 "$url/health"; then echo; break; fi
+            echo "Not healthy yet (attempt $attempt); waiting 15 seconds..."
+            sleep 15
+          done
+          curl -fsS --max-time 30 "$url/health" > /dev/null
+          curl -fsS --max-time 30 "$url/api/vendors" | jq .
+          {
+            echo "### Deployed :rocket:"
+            echo "- API docs: $url/scalar"
+            echo "- Demo: $url/api/vendors/1/funding-summary?period=2026-Q3"
+          } >> "$GITHUB_STEP_SUMMARY"

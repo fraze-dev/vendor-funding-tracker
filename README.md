@@ -54,9 +54,31 @@ In VS Code, press **F5** to start SQL Server and debug the API. `requests.http` 
 dotnet test                     # Integration tests need Docker running
 ```
 
+## Deployment
+
+Every push to `main` that passes tests is deployed to Azure by the `deploy` job in [ci.yml](.github/workflows/ci.yml):
+
+1. Builds a container image and pushes it to GitHub Container Registry.
+2. Signs in to Azure with **OpenID Connect**, so no Azure credentials are stored in GitHub.
+3. Deploys [infra/main.bicep](infra/main.bicep): Azure Container Apps, Azure SQL Database (free offer), Log Analytics and Application Insights.
+4. Applies EF Core migrations from the pipeline, then grants the API's managed identity access to the database.
+5. Switches the app to the new image and runs a smoke test.
+
+```
+GitHub Actions ──OIDC──▶ Azure ──▶ Container Apps (scales to 0) ──managed identity──▶ Azure SQL (auto-pauses)
+                                         │
+                                         └──▶ Application Insights
+```
+
+**No passwords anywhere:** the API connects to SQL with a managed identity, and SQL accepts Microsoft Entra sign-in only.
+
+**Cost:** close to $0. The app scales to zero and the database auto-pauses when idle, so the first request after a quiet period can take up to a minute while they wake up. Log ingestion has a daily cap, and a budget alert is set up.
+
+One-time setup for a new subscription: `./infra/bootstrap.ps1 -BudgetEmail you@example.com` (see the script for details).
+
 ## Roadmap
 
-- [ ] Deploy to Azure App Service + Azure SQL with Bicep, from GitHub Actions using OIDC (no stored secrets)
+- [x] Deploy to Azure Container Apps + Azure SQL with Bicep, from GitHub Actions using OIDC (no stored secrets)
 - [ ] Generate accrual journal entries (Dr Vendor Receivable / Cr Cost of Goods Sold) with an audit trail
 - [ ] Nightly sales file ingestion: Blob Storage → Azure Function → Service Bus
 - [ ] Billback and off-invoice deal types based on purchase orders
