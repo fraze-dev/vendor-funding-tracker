@@ -1,8 +1,11 @@
 // Everything the API runs on. Deployed by the GitHub Actions "deploy" job on every push to main.
 // Sized to stay inside Azure free grants: the app scales to zero and the database auto-pauses when idle.
 
-@description('Azure region for all resources.')
-param location string = resourceGroup().location
+// Not the resource group's region (East US 2): Azure SQL isn't accepting new servers there, or in
+// most other US regions, for many subscriptions. Check with:
+//   az rest --method get --url "https://management.azure.com/subscriptions/<id>/providers/Microsoft.Sql/locations/<region>/capabilities?api-version=2023-08-01-preview"
+@description('Azure region for all resources. Keep the app and database together to avoid cross-region latency.')
+param location string = 'centralus'
 
 @description('Name of the container app (also used in its public URL).')
 param containerAppName string = 'vendor-funding-api'

@@ -36,6 +36,14 @@ $subscriptionId = az account show --query id -o tsv
 $tenantId = az account show --query tenantId -o tsv
 Write-Host "Subscription: $(az account show --query name -o tsv) ($subscriptionId)"
 
+$ghSignedIn = $false
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+    gh auth status *> $null
+    $ghSignedIn = $LASTEXITCODE -eq 0
+    $PSNativeCommandUseErrorActionPreference = $true
+}
+
 Step 'Registering resource providers (can take a few minutes the first time)'
 foreach ($namespace in 'Microsoft.App', 'Microsoft.Sql', 'Microsoft.OperationalInsights', 'Microsoft.Insights',
                        'Microsoft.ManagedIdentity', 'Microsoft.Consumption') {
@@ -67,18 +75,36 @@ if (-not $spObjectId) {
 }
 
 Step "Trusting GitHub Actions runs in $GitHubRepo (environment: $GitHubEnvironment)"
+# The subject must match GitHub's token exactly. Newer repos use an "immutable" format that includes the
+# owner and repo IDs (repo:owner@123/name@456), so ask GitHub for the prefix instead of assuming it.
+$subjectPrefix = "repo:$GitHubRepo"
+if ($ghSignedIn) {
+    $subjectPrefix = gh api "repos/$GitHubRepo/actions/oidc/customization/sub" --jq '.sub_claim_prefix // empty'
+    if (-not $subjectPrefix) { $subjectPrefix = "repo:$GitHubRepo" }
+} else {
+    Write-Host "  GitHub CLI isn't signed in; assuming the subject prefix '$subjectPrefix'." -ForegroundColor Yellow
+}
+$subject = "${subjectPrefix}:environment:$GitHubEnvironment"
+Write-Host "  subject: $subject"
+
 $credentialName = "github-$GitHubEnvironment"
 # Filtering in PowerShell rather than with --query: az.cmd on Windows mangles JMESPath filters like [?name=='x'].
-$credentialNames = az ad app federated-credential list --id $appId -o json | ConvertFrom-Json | ForEach-Object name
-if ($credentialName -notin $credentialNames) {
+$existingCredential = az ad app federated-credential list --id $appId -o json | ConvertFrom-Json |
+    Where-Object name -eq $credentialName
+if (-not $existingCredential -or $existingCredential.subject -ne $subject) {
     $credentialFile = New-TemporaryFile
     @{
         name      = $credentialName
         issuer    = 'https://token.actions.githubusercontent.com'
-        subject   = "repo:${GitHubRepo}:environment:$GitHubEnvironment"
+        subject   = $subject
         audiences = @('api://AzureADTokenExchange')
     } | ConvertTo-Json | Set-Content $credentialFile
-    az ad app federated-credential create --id $appId --parameters "@$credentialFile" --output none
+    if ($existingCredential) {
+        az ad app federated-credential update --id $appId --federated-credential-id $existingCredential.id `
+            --parameters "@$credentialFile" --output none
+    } else {
+        az ad app federated-credential create --id $appId --parameters "@$credentialFile" --output none
+    }
     Remove-Item $credentialFile
 }
 
@@ -109,13 +135,6 @@ $variables = [ordered]@{
     SQL_ADMIN_GROUP_ID    = $groupId
 }
 
-$ghSignedIn = $false
-if (Get-Command gh -ErrorAction SilentlyContinue) {
-    $PSNativeCommandUseErrorActionPreference = $false
-    gh auth status *> $null
-    $ghSignedIn = $LASTEXITCODE -eq 0
-    $PSNativeCommandUseErrorActionPreference = $true
-}
 foreach ($name in $variables.Keys) {
     if ($ghSignedIn) {
         gh variable set $name --repo $GitHubRepo --body $variables[$name]
