@@ -19,7 +19,9 @@ param sqlAdminGroupName string
 @description('Object ID of that Entra group.')
 param sqlAdminGroupObjectId string
 
-var suffix = uniqueString(resourceGroup().id)
+// Includes the region so moving regions gets fresh names: Azure can keep a failed resource's
+// name reserved in its old region for a while, which blocks re-creating it elsewhere.
+var suffix = uniqueString(resourceGroup().id, location)
 var tags = { app: 'vendor-funding-tracker' }
 
 // ---------- Monitoring ----------
