@@ -127,6 +127,7 @@ jobs:
             Server=tcp:${{ steps.infra.outputs.sqlServerFqdn }},1433;Database=${{ steps.infra.outputs.databaseName }};Authentication=Active Directory Default;Encrypt=True;Connect Timeout=120
         run: |
           dotnet tool restore
+          dotnet restore src/VendorFunding.Api   # this job starts from a fresh checkout
           dotnet ef migrations bundle --project src/VendorFunding.Infrastructure --startup-project src/VendorFunding.Api \
             --configuration Release --output efbundle --force
           ./efbundle
