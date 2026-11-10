@@ -22,6 +22,47 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("VendorFunding.Domain.AccountingPeriod", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset?>("ClosedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<DateTimeOffset?>("LastAccrualRunAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartDate")
+                        .IsUnique();
+
+                    b.HasIndex("Status")
+                        .IsUnique()
+                        .HasDatabaseName("IX_AccountingPeriods_SingleOpen")
+                        .HasFilter("[Status] = 'Open'");
+
+                    b.ToTable("AccountingPeriods");
+                });
+
             modelBuilder.Entity("VendorFunding.Domain.Deal", b =>
                 {
                     b.Property<int>("Id")
@@ -76,6 +117,90 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                     b.ToTable("Deals", t =>
                         {
                             t.HasCheckConstraint("CK_Deals_EndDate", "[EndDate] >= [StartDate]");
+                        });
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.JournalEntry", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AccountingPeriodId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int?>("DealId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateOnly>("PostingDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountingPeriodId");
+
+                    b.HasIndex("DealId");
+
+                    b.HasIndex("PostingDate");
+
+                    b.ToTable("JournalEntries");
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.JournalLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AccountNumber")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<decimal>("Credit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("Debit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("JournalEntryId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountNumber");
+
+                    SqlServerIndexBuilderExtensions.IncludeProperties(b.HasIndex("AccountNumber"), new[] { "Debit", "Credit" });
+
+                    b.HasIndex("JournalEntryId");
+
+                    b.ToTable("JournalLines", t =>
+                        {
+                            t.HasCheckConstraint("CK_JournalLines_OneSide", "[Debit] >= 0 AND [Credit] >= 0 AND ([Debit] = 0 OR [Credit] = 0) AND [Debit] + [Credit] > 0");
                         });
                 });
 
@@ -154,6 +279,38 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Vendor");
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.JournalEntry", b =>
+                {
+                    b.HasOne("VendorFunding.Domain.AccountingPeriod", "AccountingPeriod")
+                        .WithMany()
+                        .HasForeignKey("AccountingPeriodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VendorFunding.Domain.Deal", "Deal")
+                        .WithMany()
+                        .HasForeignKey("DealId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("AccountingPeriod");
+
+                    b.Navigation("Deal");
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.JournalLine", b =>
+                {
+                    b.HasOne("VendorFunding.Domain.JournalEntry", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("JournalEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.JournalEntry", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("VendorFunding.Domain.Vendor", b =>

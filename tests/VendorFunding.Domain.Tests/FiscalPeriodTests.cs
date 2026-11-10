@@ -20,6 +20,17 @@ public class FiscalPeriodTests
     }
 
     [Theory]
+    [InlineData("2026-09", true)]
+    [InlineData("2028-02", true)]
+    [InlineData("2026-Q3", false)]
+    [InlineData("2026", false)]
+    public void IsMonth_is_true_only_for_single_months(string input, bool expected)
+    {
+        Assert.True(FiscalPeriod.TryParse(input, out var period));
+        Assert.Equal(expected, period.IsMonth);
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("2026-Q5")]

@@ -17,6 +17,32 @@ Finance teams need to know how much funding has been **earned** in each period s
 
 **Accounting detail:** lump-sum deals are recognized straight-line by day. Each period's amount is computed as *earned-to-date at period end* minus *earned-to-date at the previous period end*. That way the per-period amounts always add up to exactly the contract amount, with no rounding drift (see `FundingCalculatorTests`).
 
+## Accrual accounting
+
+Once funding is earned, finance books it each month as an accrual:
+
+```
+Dr  1310  Vendor Funding Receivable        3,180.00
+    Cr  5010  COGS - Vendor Allowances            3,180.00
+```
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/accruals/{month}/run` | Posts entries for funding earned but not yet booked, through the end of the month |
+| `POST /api/periods/{month}/close` | Locks the month and lets the next one open |
+| `GET /api/journal-entries?period={month}` | Lists posted entries with their debit and credit lines |
+| `GET /api/trial-balance?period={month}` | Account balances as of the end of the month |
+
+The rules it follows:
+
+- **True-ups, not duplicates.** Each run compares *earned to date* with *booked to date* for every deal and posts only the difference, so re-running a month with no new sales posts nothing (`AccrualCalculator`).
+- **Posted entries are permanent.** Corrections are new entries, never edits or deletes, so the journal is a complete audit trail. The DbContext rejects any attempt to modify or delete a posted entry.
+- **Periods close in order, one at a time.** Only the single open month accepts postings. A filtered unique index guarantees there's never more than one open period, and a row version stops two simultaneous runs from double-posting.
+- **Late data doesn't reopen closed months.** Sales that arrive after a month closes are booked in the open month as a **prior-period adjustment**.
+- **Double-entry is enforced.** Debits must equal credits on every entry, and a database check constraint requires each line to be a single positive debit or credit.
+
+The integration tests walk through a full month-end close (accrue, re-run, close, late sale, adjust) and confirm the trial balance agrees with the funding calculation to the cent.
+
 ## Live demo
 
 - **Interactive API docs:** https://vendor-funding-api.ambitiousforest-135ed071.centralus.azurecontainerapps.io/scalar
@@ -30,7 +56,7 @@ Finance teams need to know how much funding has been **earned** in each period s
 
 ```
 src/
-  VendorFunding.Domain          Entities and pure business logic (FundingCalculator, FiscalPeriod). No dependencies.
+  VendorFunding.Domain          Entities and pure business logic (FundingCalculator, AccrualCalculator, JournalEntry). No dependencies.
   VendorFunding.Infrastructure  EF Core DbContext, SQL Server migrations, demo data seeder
   VendorFunding.Api             ASP.NET Core minimal API, OpenAPI + Scalar docs, health checks
 tests/
@@ -80,7 +106,7 @@ One-time setup for a new subscription: `./infra/bootstrap.ps1 -BudgetEmail you@e
 ## Roadmap
 
 - [x] Deploy to Azure Container Apps + Azure SQL with Bicep, from GitHub Actions using OIDC (no stored secrets)
-- [ ] Generate accrual journal entries (Dr Vendor Receivable / Cr Cost of Goods Sold) with an audit trail
+- [x] Generate accrual journal entries (Dr Vendor Receivable / Cr Cost of Goods Sold) with an audit trail
 - [ ] Nightly sales file ingestion: Blob Storage → Azure Function → Service Bus
 - [ ] Billback and off-invoice deal types based on purchase orders
 - [ ] Frontend dashboard: earned vs. collected funding, receivable aging

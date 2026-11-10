@@ -10,6 +10,9 @@ namespace VendorFunding.Domain;
 /// </summary>
 public sealed partial record FiscalPeriod(string Label, DateRange Range)
 {
+    /// <summary>True for a single month such as "2026-09" (accounting periods are monthly).</summary>
+    public bool IsMonth => Range.Start.Day == 1 && Range.End == Range.Start.AddMonths(1).AddDays(-1);
+
     public static bool TryParse(string? value, [NotNullWhen(true)] out FiscalPeriod? period)
     {
         period = null;

@@ -57,5 +57,25 @@ Content-Type: application/json
   { "storeNumber": "S0001", "sku": "100245", "saleDate": "2026-11-16", "unitsSold": 42, "netSales": 209.58 }
 ]
 
+### ---- Month-end accounting (periods open and close in order) ----
+
+### Run the July accrual (safe to re-run: only the difference is posted)
+POST {{baseUrl}}/api/accruals/2026-07/run
+
+### Close July
+POST {{baseUrl}}/api/periods/2026-07/close
+
+### Run August (any late July sales show up as prior-period adjustments)
+POST {{baseUrl}}/api/accruals/2026-08/run
+
+### Accounting periods and their status
+GET {{baseUrl}}/api/periods
+
+### Journal entries for August
+GET {{baseUrl}}/api/journal-entries?period=2026-08
+
+### Trial balance as of August 31
+GET {{baseUrl}}/api/trial-balance?period=2026-08
+
 ### Health
 GET {{baseUrl}}/health

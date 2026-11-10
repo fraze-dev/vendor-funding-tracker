@@ -18,6 +18,8 @@ builder.Services.AddDbContext<VendorFundingDbContext>((services, options) =>
         sql => sql.EnableRetryOnFailure()));
 
 builder.Services.AddScoped<FundingSummaryService>();
+builder.Services.AddScoped<AccrualService>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddHealthChecks().AddDbContextCheck<VendorFundingDbContext>("database");
 
 // Send logs, traces and metrics to Application Insights when deployed (Azure sets this variable).
@@ -35,6 +37,7 @@ if (builder.Configuration.GetValue<bool>("Database:SeedDemoData") &&
 
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<BadRequestExceptionHandler>();
+builder.Services.AddExceptionHandler<ConflictExceptionHandler>();
 // Outside Development, ASP.NET returns a bare 400 for unreadable bodies; throwing lets the handler above explain why.
 builder.Services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
 builder.Services.AddOpenApi();
@@ -58,6 +61,7 @@ app.MapHealthChecks("/alive", new HealthCheckOptions { Predicate = _ => false })
 app.MapHealthChecks("/health");
 app.MapVendorEndpoints();
 app.MapSalesEndpoints();
+app.MapAccountingEndpoints();
 
 if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {

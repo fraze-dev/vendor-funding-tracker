@@ -32,6 +32,26 @@ public static class FundingCalculator
         }
     }
 
+    /// <summary>Funding a deal has earned in total from its start through <paramref name="date"/>.</summary>
+    /// <param name="unitsSoldThroughDate">
+    /// Units of the deal's item sold from the deal start through the date. Used by scan-down deals only.
+    /// </param>
+    public static decimal EarnedThrough(Deal deal, DateOnly date, int unitsSoldThroughDate)
+    {
+        if (date < deal.StartDate)
+        {
+            return 0m;
+        }
+
+        return deal.Type switch
+        {
+            DealType.ScanDown => ScanDownEarned(deal.RatePerUnit ?? 0m, unitsSoldThroughDate),
+            DealType.LumpSum => LumpSumEarned(
+                deal.LumpSumAmount ?? 0m, deal.Term, new DateRange(deal.StartDate, date < deal.EndDate ? date : deal.EndDate)),
+            _ => throw new ArgumentOutOfRangeException(nameof(deal), deal.Type, "Unsupported deal type."),
+        };
+    }
+
     public static decimal RoundToCents(decimal value) =>
         Math.Round(value, 2, MidpointRounding.AwayFromZero);
 }
