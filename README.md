@@ -17,13 +17,14 @@ Finance teams need to know how much funding has been **earned** in each period s
 
 **Accounting detail:** lump-sum deals are recognized straight-line by day. Each period's amount is computed as *earned-to-date at period end* minus *earned-to-date at the previous period end*. That way the per-period amounts always add up to exactly the contract amount, with no rounding drift (see `FundingCalculatorTests`).
 
-## Demo
+## Live demo
 
-```
-GET /api/vendors/1/funding-summary?period=2026-Q3
-```
+- **Interactive API docs:** https://vendor-funding-api.ambitiousforest-135ed071.centralus.azurecontainerapps.io/scalar
+- **Q3 funding for one vendor:** https://vendor-funding-api.ambitiousforest-135ed071.centralus.azurecontainerapps.io/api/vendors/1/funding-summary?period=2026-Q3
 
-`period` accepts a year (`2026`), quarter (`2026-Q3`) or month (`2026-08`). Interactive API docs are at `/scalar`.
+> The demo scales to zero when nobody is using it, so the **first request after a quiet period can take up to a minute** while the app and database wake up. After that, responses take well under a second.
+
+`period` accepts a year (`2026`), quarter (`2026-Q3`) or month (`2026-08`).
 
 ## Architecture
 
