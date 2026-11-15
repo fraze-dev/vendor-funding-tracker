@@ -26,6 +26,23 @@ public record DealResponse(
 
 public record SalesBatchResponse(int RecordsInserted);
 
+public record SalesImportResponse(
+    Guid Id,
+    string FileName,
+    SalesImportStatus Status,
+    DateTimeOffset ReceivedAt,
+    DateTimeOffset? CompletedAt,
+    int TotalRows,
+    int LoadedRows,
+    int RejectedRows,
+    bool HasRejects,
+    string? Error)
+{
+    public static SalesImportResponse From(SalesImport i) => new(
+        i.Id, i.FileName, i.Status, i.ReceivedAt, i.CompletedAt, i.TotalRows, i.LoadedRows, i.RejectedRows,
+        i.RejectsBlobName is not null, i.Error);
+}
+
 public record FundingSummaryResponse(
     int VendorId,
     string VendorNumber,

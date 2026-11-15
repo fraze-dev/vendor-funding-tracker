@@ -17,7 +17,7 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.14")
+                .HasAnnotation("ProductVersion", "10.0.15")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -204,6 +204,89 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("VendorFunding.Domain.SalesImport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BlobName")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nchar(64)")
+                        .IsFixedLength();
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("nvarchar(260)");
+
+                    b.Property<int>("LoadedRows")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("ReceivedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("RejectedRows")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RejectsBlobName")
+                        .HasMaxLength(400)
+                        .HasColumnType("nvarchar(400)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int>("TotalBatches")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TotalRows")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BlobName")
+                        .IsUnique();
+
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("ReceivedAt");
+
+                    b.ToTable("SalesImports");
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.SalesImportBatch", b =>
+                {
+                    b.Property<Guid>("ImportId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("BatchNumber")
+                        .HasColumnType("int");
+
+                    b.Property<DateTimeOffset>("LoadedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("ImportId", "BatchNumber");
+
+                    b.ToTable("SalesImportBatches");
+                });
+
             modelBuilder.Entity("VendorFunding.Domain.SalesRecord", b =>
                 {
                     b.Property<long>("Id")
@@ -211,6 +294,9 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<Guid?>("ImportId")
+                        .HasColumnType("uniqueidentifier");
 
                     b.Property<decimal>("NetSales")
                         .HasPrecision(18, 2)
@@ -233,6 +319,8 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ImportId");
 
                     b.HasIndex("Sku", "SaleDate");
 
@@ -306,6 +394,23 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .HasForeignKey("JournalEntryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.SalesImportBatch", b =>
+                {
+                    b.HasOne("VendorFunding.Domain.SalesImport", null)
+                        .WithMany()
+                        .HasForeignKey("ImportId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.SalesRecord", b =>
+                {
+                    b.HasOne("VendorFunding.Domain.SalesImport", null)
+                        .WithMany()
+                        .HasForeignKey("ImportId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("VendorFunding.Domain.JournalEntry", b =>

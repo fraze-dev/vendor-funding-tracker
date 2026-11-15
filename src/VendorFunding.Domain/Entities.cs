@@ -54,4 +54,7 @@ public class SalesRecord
     public int UnitsSold { get; set; }
 
     public decimal NetSales { get; set; }
+
+    /// <summary>The sales file this record came from, or null if it was posted directly to the API.</summary>
+    public Guid? ImportId { get; set; }
 }

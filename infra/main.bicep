@@ -167,6 +167,9 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'Database__SeedDemoData', value: 'true' }
             // Container Apps terminates HTTPS; this makes the app see the original https scheme.
             { name: 'ASPNETCORE_FORWARDEDHEADERS_ENABLED', value: 'true' }
+            // Sales file uploads go to Blob Storage, signed in as the API's managed identity.
+            { name: 'SalesStorage__BlobServiceUri', value: ingestion.outputs.blobServiceUri }
+            { name: 'AZURE_CLIENT_ID', value: apiIdentity.properties.clientId }
           ]
           probes: [
             {
@@ -186,9 +189,29 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
+// ---------- Sales file ingestion ----------
+
+module ingestion 'ingestion.bicep' = {
+  name: 'ingestion'
+  params: {
+    location: location
+    suffix: suffix
+    tags: tags
+    apiIdentityPrincipalId: apiIdentity.properties.principalId
+    sqlServerFqdn: sqlServer.properties.fullyQualifiedDomainName
+    databaseName: database.name
+    // Built from the environment's domain (not the app) so the app and this module don't depend on each other.
+    apiBaseUrl: 'https://${containerAppName}.${environment.properties.defaultDomain}'
+    appInsightsConnectionString: appInsights.properties.ConnectionString
+  }
+}
+
 output appUrl string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 output sqlServerName string = sqlServer.name
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output databaseName string = database.name
 output apiIdentityName string = apiIdentity.name
 output apiIdentityClientId string = apiIdentity.properties.clientId
+output functionAppName string = ingestion.outputs.functionAppName
+output functionsIdentityName string = ingestion.outputs.functionsIdentityName
+output functionsIdentityClientId string = ingestion.outputs.functionsIdentityClientId

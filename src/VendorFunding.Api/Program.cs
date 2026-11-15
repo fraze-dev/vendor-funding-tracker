@@ -7,6 +7,7 @@ using VendorFunding.Api;
 using VendorFunding.Api.Endpoints;
 using VendorFunding.Api.Services;
 using VendorFunding.Infrastructure.Persistence;
+using VendorFunding.Infrastructure.SalesImports;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,6 +21,13 @@ builder.Services.AddDbContext<VendorFundingDbContext>((services, options) =>
 builder.Services.AddScoped<FundingSummaryService>();
 builder.Services.AddScoped<AccrualService>();
 builder.Services.AddSingleton(TimeProvider.System);
+// Azurite connection string locally and in tests; account URL + managed identity in Azure.
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return SalesFileStore.FromSettings(
+        config["SalesStorage:ConnectionString"], config["SalesStorage:BlobServiceUri"], config["AZURE_CLIENT_ID"]);
+});
 builder.Services.AddHealthChecks().AddDbContextCheck<VendorFundingDbContext>("database");
 
 // Send logs, traces and metrics to Application Insights when deployed (Azure sets this variable).

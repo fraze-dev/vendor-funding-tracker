@@ -110,7 +110,8 @@ jobs:
                          sqlAdminGroupName="${{ vars.SQL_ADMIN_GROUP_NAME }}" \
                          sqlAdminGroupObjectId="${{ vars.SQL_ADMIN_GROUP_ID }}" \
             --query properties.outputs -o json)
-          for key in appUrl sqlServerName sqlServerFqdn databaseName apiIdentityName apiIdentityClientId; do
+          for key in appUrl sqlServerName sqlServerFqdn databaseName apiIdentityName apiIdentityClientId \
+                     functionAppName functionsIdentityName functionsIdentityClientId; do
             echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
           done
 
@@ -132,17 +133,27 @@ jobs:
             --configuration Release --output efbundle --force
           ./efbundle
 
-      - name: Grant the API access to the database
-        run: >
-          dotnet run infra/grant-db-access.cs --
-          "${{ steps.infra.outputs.sqlServerFqdn }}" "${{ steps.infra.outputs.databaseName }}"
-          "${{ steps.infra.outputs.apiIdentityName }}" "${{ steps.infra.outputs.apiIdentityClientId }}"
+      - name: Grant the API and Functions access to the database
+        run: |
+          server="${{ steps.infra.outputs.sqlServerFqdn }}"
+          db="${{ steps.infra.outputs.databaseName }}"
+          dotnet run infra/grant-db-access.cs -- "$server" "$db" \
+            "${{ steps.infra.outputs.apiIdentityName }}" "${{ steps.infra.outputs.apiIdentityClientId }}"
+          dotnet run infra/grant-db-access.cs -- "$server" "$db" \
+            "${{ steps.infra.outputs.functionsIdentityName }}" "${{ steps.infra.outputs.functionsIdentityClientId }}"
 
       - name: Close SQL firewall
         if: always() && steps.infra.outputs.sqlServerName != ''
         run: |
           az sql server firewall-rule delete -g "$RESOURCE_GROUP" -s "${{ steps.infra.outputs.sqlServerName }}" \
             -n "github-run-${GITHUB_RUN_ID}" -o none || true
+
+      - name: Deploy Functions
+        run: |
+          dotnet publish src/VendorFunding.Functions --configuration Release --output publish/functions
+          (cd publish/functions && zip -qr ../functions.zip .)
+          az functionapp deployment source config-zip -g "$RESOURCE_GROUP" \
+            -n "${{ steps.infra.outputs.functionAppName }}" --src publish/functions.zip -o none
 
       - name: Release new image
         id: release
@@ -166,3 +177,30 @@ jobs:
             echo "- API docs: $url/scalar"
             echo "- Demo: $url/api/vendors/1/funding-summary?period=2026-Q3"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Smoke test file ingestion
+        run: |
+          url="${{ steps.release.outputs.url }}"
+          # One row for an item no deal covers, so it doesn't change any funding numbers.
+          # The run ID makes the content unique, so it isn't treated as a duplicate of an earlier run.
+          printf 'store_number,sku,sale_date,units_sold,net_sales\nSMOKE,SMOKE-%s,%s,1,0.01\n' \
+            "$GITHUB_RUN_ID" "$(date -u +%F)" > smoke.csv
+          import=$(curl -fsS --max-time 60 -F "file=@smoke.csv;type=text/csv" "$url/api/sales/files")
+          id=$(jq -r .id <<< "$import")
+          echo "Uploaded import $id; waiting for Event Grid → Service Bus → Functions → SQL..."
+          # The Function app may be starting from zero on its first event after a deploy.
+          for attempt in $(seq 1 30); do
+            status=$(curl -fsS --max-time 30 "$url/api/sales/imports/$id" | jq -r .status)
+            echo "Attempt $attempt: $status"
+            if [ "$status" = "Completed" ]; then
+              echo "- File ingestion: import \`$id\` completed end to end" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            case "$status" in CompletedWithErrors|Duplicate|Failed)
+              curl -fsS "$url/api/sales/imports/$id" | jq .
+              exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::The smoke-test file wasn't loaded within 5 minutes. Check the Function app's logs and the sales-files and sales-records dead-letter queues."
+          exit 1

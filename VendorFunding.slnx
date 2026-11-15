@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VendorFunding.Api/VendorFunding.Api.csproj" />
     <Project Path="src/VendorFunding.Domain/VendorFunding.Domain.csproj" />
+    <Project Path="src/VendorFunding.Functions/VendorFunding.Functions.csproj" />
     <Project Path="src/VendorFunding.Infrastructure/VendorFunding.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">

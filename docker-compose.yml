@@ -1,4 +1,4 @@
-# Local SQL Server for development. Start with: docker compose up -d
+# Local SQL Server and Blob Storage (Azurite) for development. Start with: docker compose up -d
 # The password is for local development only and matches appsettings.Development.json.
 services:
   sql:
@@ -12,5 +12,15 @@ services:
     volumes:
       - sqldata:/var/opt/mssql
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    container_name: vendor-funding-azurite
+    command: azurite-blob --blobHost 0.0.0.0 --location /data --loose --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - azuritedata:/data
+
 volumes:
   sqldata:
+  azuritedata:
