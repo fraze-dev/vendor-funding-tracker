@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy to local.settings.json (git-ignored). Running locally needs an Azure Service Bus namespace you can sign in to with the Azure CLI.",
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ServiceBus__fullyQualifiedNamespace": "<your-namespace>.servicebus.windows.net",
+    "SalesStorage__ConnectionString": "UseDevelopmentStorage=true",
+    "VendorFundingApi__BaseUrl": "http://localhost:5041",
+    "NightlyAccrualSchedule": "0 0 7 * * *"
+  },
+  "ConnectionStrings": {
+    "VendorFunding": "Server=localhost,1433;Database=VendorFunding;User Id=sa;Password=LocalDev!Passw0rd;TrustServerCertificate=True"
+  }
+}

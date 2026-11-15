@@ -57,6 +57,24 @@ Content-Type: application/json
   { "storeNumber": "S0001", "sku": "100245", "saleDate": "2026-11-16", "unitsSold": 42, "netSales": 209.58 }
 ]
 
+### ---- Sales file ingestion ----
+
+### Upload a store's daily sales file (the second row is rejected: wrong date format)
+POST {{baseUrl}}/api/sales/files
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="store-0001-2026-11-14.csv"
+Content-Type: text/csv
+
+store_number,sku,sale_date,units_sold,net_sales
+S0001,100245,2026-11-14,42,209.58
+S0001,100246,11/14/2026,3,19.47
+--boundary--
+
+### Recent imports and their status
+GET {{baseUrl}}/api/sales/imports
+
 ### ---- Month-end accounting (periods open and close in order) ----
 
 ### Run the July accrual (safe to re-run: only the difference is posted)

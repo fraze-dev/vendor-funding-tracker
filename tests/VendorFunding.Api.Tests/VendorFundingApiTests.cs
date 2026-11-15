@@ -61,6 +61,16 @@ public class VendorFundingApiTests(ApiFactory factory) : IClassFixture<ApiFactor
     }
 
     [Fact]
+    public async Task File_upload_returns_503_when_storage_is_not_configured()
+    {
+        using var form = new MultipartFormDataContent { { new StringContent("store_number,sku"), "file", "sales.csv" } };
+
+        var response = await _client.PostAsync("/api/sales/files", form);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Malformed_date_returns_bad_request_naming_the_field()
     {
         var body = new StringContent(

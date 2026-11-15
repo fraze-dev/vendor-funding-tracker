@@ -9,7 +9,8 @@
       3. Creates a Microsoft Entra group that administers the SQL server, and adds you to it.
       4. Creates a "github-vendor-funding-deploy" identity that GitHub Actions signs in as using
          OpenID Connect (federated credentials), so no Azure secret is stored in GitHub.
-      5. Lets that identity deploy to the resource group and administer the database.
+      5. Lets that identity deploy to the resource group, administer the database, and grant the app's
+         managed identities a fixed list of storage and Service Bus data roles (nothing broader).
       6. Creates a monthly budget alert.
       7. Prints (or, if the GitHub CLI is signed in, sets) the GitHub repository variables.
 
@@ -46,7 +47,8 @@ if (Get-Command gh -ErrorAction SilentlyContinue) {
 
 Step 'Registering resource providers (can take a few minutes the first time)'
 foreach ($namespace in 'Microsoft.App', 'Microsoft.Sql', 'Microsoft.OperationalInsights', 'Microsoft.Insights',
-                       'Microsoft.ManagedIdentity', 'Microsoft.Consumption') {
+                       'Microsoft.ManagedIdentity', 'Microsoft.Consumption', 'Microsoft.Storage', 'Microsoft.ServiceBus',
+                       'Microsoft.EventGrid', 'Microsoft.Web') {
     az provider register --namespace $namespace --wait --output none
     Write-Host "  $namespace registered"
 }
@@ -114,6 +116,41 @@ if ($existing.Count -eq 0) {
     az role assignment create --assignee-object-id $spObjectId --assignee-principal-type ServicePrincipal `
         --role Contributor --scope $resourceGroupId --output none
 }
+
+Step 'Letting the deploy identity grant data-access roles to the app identities (and nothing else)'
+# Role Based Access Control Administrator, restricted by an Azure ABAC condition: the pipeline may only
+# assign (or remove) these storage and Service Bus data roles, and only to service principals such as
+# managed identities. It can't grant Owner, Contributor or anything to a user. Must match infra/ingestion.bicep.
+$allowedRoles = @(
+    'b7e6dc6d-f1e8-4753-8033-0f276bb0955b' # Storage Blob Data Owner
+    'ba92f5b4-2d11-453d-a403-e96b0029c9fe' # Storage Blob Data Contributor
+    '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' # Storage Blob Data Reader
+    '69a216fc-b8fb-44d8-bc22-1f3c2cd27a39' # Azure Service Bus Data Sender
+    '4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0' # Azure Service Bus Data Receiver
+) -join ', '
+$condition = "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) OR " +
+    "(@Request[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$allowedRoles} AND " +
+    "@Request[Microsoft.Authorization/roleAssignments:PrincipalType] ForAnyOfAnyValues:StringEqualsIgnoreCase {'ServicePrincipal'})) AND " +
+    "((!(ActionMatches{'Microsoft.Authorization/roleAssignments/delete'})) OR " +
+    "(@Resource[Microsoft.Authorization/roleAssignments:RoleDefinitionId] ForAnyOfAnyValues:GuidEquals {$allowedRoles}))"
+$rbacAdminRoleId = 'f58310d9-a9f6-439a-9e8d-f62e7b41a168' # Role Based Access Control Administrator
+# A deterministic assignment name, so re-running updates this assignment instead of adding another.
+$assignmentName = [guid]::new([System.Security.Cryptography.MD5]::HashData(
+    [Text.Encoding]::UTF8.GetBytes("$resourceGroupId|$spObjectId|$rbacAdminRoleId")))
+$assignmentFile = New-TemporaryFile
+@{
+    properties = @{
+        roleDefinitionId = "/subscriptions/$subscriptionId/providers/Microsoft.Authorization/roleDefinitions/$rbacAdminRoleId"
+        principalId      = $spObjectId
+        principalType    = 'ServicePrincipal'
+        condition        = $condition
+        conditionVersion = '2.0'
+    }
+} | ConvertTo-Json -Depth 5 | Set-Content $assignmentFile
+# Sent as a file through the REST API: az.cmd on Windows mangles the condition's special characters.
+az rest --method put --output none --body "@$assignmentFile" `
+    --url "https://management.azure.com$resourceGroupId/providers/Microsoft.Authorization/roleAssignments/$assignmentName`?api-version=2022-04-01"
+Remove-Item $assignmentFile
 
 Step 'Adding the deploy identity to the SQL admin group (so it can run migrations)'
 if ((az ad group member check --group $groupId --member-id $spObjectId --query value -o tsv) -ne 'true') {

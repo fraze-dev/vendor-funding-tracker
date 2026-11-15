@@ -11,6 +11,8 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
     public DbSet<AccountingPeriod> AccountingPeriods => Set<AccountingPeriod>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<JournalLine> JournalLines => Set<JournalLine>();
+    public DbSet<SalesImport> SalesImports => Set<SalesImport>();
+    public DbSet<SalesImportBatch> SalesImportBatches => Set<SalesImportBatch>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -64,6 +66,27 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
             sale.Property(s => s.NetSales).HasPrecision(18, 2);
             // Funding calculations filter by item and date range.
             sale.HasIndex(s => new { s.Sku, s.SaleDate }).IncludeProperties(s => s.UnitsSold);
+            sale.HasOne<SalesImport>().WithMany().HasForeignKey(s => s.ImportId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SalesImport>(import =>
+        {
+            import.Property(i => i.FileName).HasMaxLength(260);
+            import.Property(i => i.BlobName).HasMaxLength(400);
+            import.Property(i => i.ContentHash).HasMaxLength(64).IsFixedLength();
+            import.Property(i => i.Status).HasConversion<string>().HasMaxLength(30);
+            import.Property(i => i.RejectsBlobName).HasMaxLength(400);
+            import.Property(i => i.Error).HasMaxLength(1000);
+            import.HasIndex(i => i.BlobName).IsUnique();
+            import.HasIndex(i => i.ContentHash);
+            import.HasIndex(i => i.ReceivedAt);
+        });
+
+        modelBuilder.Entity<SalesImportBatch>(batch =>
+        {
+            // The key is what makes loading a batch idempotent.
+            batch.HasKey(b => new { b.ImportId, b.BatchNumber });
+            batch.HasOne<SalesImport>().WithMany().HasForeignKey(b => b.ImportId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<AccountingPeriod>(period =>
