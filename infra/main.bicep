@@ -170,6 +170,8 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             // Sales file uploads go to Blob Storage, signed in as the API's managed identity.
             { name: 'SalesStorage__BlobServiceUri', value: ingestion.outputs.blobServiceUri }
             { name: 'AZURE_CLIENT_ID', value: apiIdentity.properties.clientId }
+            // The Blazor dashboard calls the API from its own domain; only that origin is allowed.
+            { name: 'Cors__AllowedOrigins__0', value: 'https://${dashboard.properties.defaultHostname}' }
           ]
           probes: [
             {
@@ -187,6 +189,18 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       }
     }
   }
+}
+
+// ---------- Dashboard (Blazor WebAssembly) ----------
+
+// Free tier. The app runs in the browser, so the site is just static files: it costs nothing and stays up
+// even while the API is scaled to zero. Deployed from GitHub Actions with a deployment token.
+resource dashboard 'Microsoft.Web/staticSites@2023-12-01' = {
+  name: 'swa-vendor-funding-${suffix}'
+  location: location
+  tags: tags
+  sku: { name: 'Free', tier: 'Free' }
+  properties: {}
 }
 
 // ---------- Sales file ingestion ----------
@@ -212,6 +226,8 @@ output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output databaseName string = database.name
 output apiIdentityName string = apiIdentity.name
 output apiIdentityClientId string = apiIdentity.properties.clientId
+output dashboardName string = dashboard.name
+output dashboardUrl string = 'https://${dashboard.properties.defaultHostname}'
 output functionAppName string = ingestion.outputs.functionAppName
 output functionsIdentityName string = ingestion.outputs.functionsIdentityName
 output functionsIdentityClientId string = ingestion.outputs.functionsIdentityClientId

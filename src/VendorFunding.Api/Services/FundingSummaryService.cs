@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Contracts;
 using VendorFunding.Domain;
 using VendorFunding.Infrastructure.Persistence;
 

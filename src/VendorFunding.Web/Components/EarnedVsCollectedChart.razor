@@ -1,0 +1,196 @@
+@using System.Globalization
+@using VendorFunding.Contracts
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<section class="card" @ref="_container">
+    <div class="card-head">
+        <div>
+            <h2>Earned vs. collected by month</h2>
+            <p class="muted">Earned is funding accrued in the ledger; collected is vendor payments received.</p>
+        </div>
+        <button class="link-button" @onclick="() => _showTable = !_showTable">@(_showTable ? "Show chart" : "Show table")</button>
+    </div>
+
+    @if (Data.Count == 0)
+    {
+        <p class="muted">Nothing has been accrued or collected yet.</p>
+    }
+    else if (_showTable)
+    {
+        <div class="table-scroll"><table class="table">
+            <thead><tr><th>Month</th><th class="num">Earned</th><th class="num">Collected</th></tr></thead>
+            <tbody>
+                @foreach (var m in Data)
+                {
+                    <tr><td>@Format.Month(m.Month)</td><td class="num">@Format.Money(m.Earned)</td><td class="num">@Format.Money(m.Collected)</td></tr>
+                }
+            </tbody>
+        </table></div>
+    }
+    else
+    {
+        <ul class="legend" aria-label="Legend">
+            <li><span class="swatch" style="background: var(--series-1)"></span>Earned</li>
+            <li><span class="swatch" style="background: var(--series-2)"></span>Collected</li>
+        </ul>
+        <div class="chart-frame" @onmouseleave="() => _hovered = null">
+            <svg viewBox="0 0 @N(Width) @Height" width="@N(Width)" height="@Height" role="img" aria-label="@AriaLabel">
+                @foreach (var tick in _ticks)
+                {
+                    <line class="grid" x1="@Left" x2="@(Width - Right)" y1="@N(Y(tick))" y2="@N(Y(tick))" />
+                    <SvgText class="tick" x="@(Left - 8)" y="@N(Y(tick))" text-anchor="end" dominant-baseline="middle">@Format.CompactMoney(tick)</SvgText>
+                }
+
+                @for (var i = 0; i < Data.Count; i++)
+                {
+                    var index = i;
+                    var month = Data[i];
+                    var center = BandCenter(i);
+                    if (_hovered == index)
+                    {
+                        <rect class="hover-wash" x="@N(Left + BandWidth * i)" y="@Top" width="@N(BandWidth)" height="@PlotHeight" />
+                    }
+                    if (BarPath(center - 1 - BarWidth, month.Earned) is { } earned)
+                    {
+                        <path d="@earned" fill="var(--series-1)" />
+                    }
+                    if (BarPath(center + 1, month.Collected) is { } collected)
+                    {
+                        <path d="@collected" fill="var(--series-2)" />
+                    }
+                    <SvgText class="tick" x="@N(center)" y="@(Height - 8)" text-anchor="middle">@Format.Month(month.Month, shortForm: true)</SvgText>
+                    @* The hit target is the whole month band, bigger than the bars, so hovering is easy. *@
+                    <rect x="@N(Left + BandWidth * i)" y="@Top" width="@N(BandWidth)" height="@PlotHeight" fill="transparent"
+                          @onmouseenter="() => _hovered = index" />
+                }
+
+                <line class="baseline" x1="@Left" x2="@(Width - Right)" y1="@BaseY" y2="@BaseY" />
+            </svg>
+
+            @if (_hovered is int h)
+            {
+                var m = Data[h];
+                <div class="tooltip" style="left: @N(Math.Clamp(BandCenter(h) / Width * 100, 14, 86))%">
+                    <div class="tooltip-title">@Format.Month(m.Month)</div>
+                    <div class="tooltip-row"><span class="swatch" style="background: var(--series-1)"></span>Earned <strong>@Format.Money(m.Earned)</strong></div>
+                    <div class="tooltip-row"><span class="swatch" style="background: var(--series-2)"></span>Collected <strong>@Format.Money(m.Collected)</strong></div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<MonthlyFunding> Data { get; set; } = [];
+
+    private const double Height = 260, Left = 52, Right = 8, Top = 12, Bottom = 28;
+    private const double PlotHeight = Height - Top - Bottom, BaseY = Height - Bottom;
+
+    // Drawn at the card's real width (reported by wwwroot/js/chart-size.js), so text and bar specs are true pixels.
+    private ElementReference _container;
+    private DotNetObjectReference<EarnedVsCollectedChart>? _self;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _observer;
+    private double _width = 640;
+    private double Width => Math.Max(_width, 280);
+
+    private bool _showTable;
+    private int? _hovered;
+    private decimal _max;
+    private List<decimal> _ticks = [];
+
+    private double BandWidth => (Width - Left - Right) / Data.Count;
+    private double BarWidth => Math.Clamp((BandWidth - 16) / 2 - 1, 4, 24);
+    private double BandCenter(int i) => Left + BandWidth * (i + 0.5);
+    private double Y(decimal value) => BaseY - (double)(value / _max) * PlotHeight;
+
+    private string AriaLabel => "Earned vs. collected by month. " + string.Join("; ",
+        Data.Select(m => $"{Format.Month(m.Month)}: earned {Format.Money(m.Earned)}, collected {Format.Money(m.Collected)}"));
+
+    protected override void OnParametersSet()
+    {
+        var max = Data.Count == 0 ? 0 : Data.Max(m => Math.Max(m.Earned, m.Collected));
+        (_max, var step) = NiceScale(max);
+        _ticks = [];
+        for (var t = 0m; t <= _max; t += step)
+        {
+            _ticks.Add(t);
+        }
+    }
+
+    /// <summary>A rounded-up axis maximum and a clean step (1, 2, 2.5 or 5 × a power of ten), about four ticks.</summary>
+    private static (decimal Max, decimal Step) NiceScale(decimal max)
+    {
+        if (max <= 0)
+        {
+            return (1_000m, 250m);
+        }
+
+        var raw = (double)max / 4;
+        var magnitude = Math.Pow(10, Math.Floor(Math.Log10(raw)));
+        var step = new[] { 1, 2, 2.5, 5, 10 }.Select(m => m * magnitude).First(s => s >= raw);
+        return ((decimal)(Math.Ceiling((double)max / step) * step), (decimal)step);
+    }
+
+    /// <summary>A column with a 4px rounded top and a square base, or null for a zero value (draw nothing).</summary>
+    private string? BarPath(double x, decimal value)
+    {
+        var height = (double)(value / _max) * PlotHeight;
+        if (height <= 0)
+        {
+            return null;
+        }
+
+        var w = BarWidth;
+        var y = BaseY - height;
+        var r = Math.Min(4, Math.Min(height, w / 2));
+        return $"M{N(x)},{N(BaseY)} V{N(y + r)} Q{N(x)},{N(y)} {N(x + r)},{N(y)} H{N(x + w - r)} " +
+               $"Q{N(x + w)},{N(y)} {N(x + w)},{N(y + r)} V{N(BaseY)} Z";
+    }
+
+    private static string N(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/chart-size.js");
+            _observer = await _module.InvokeAsync<IJSObjectReference>("observeWidth", _container, _self);
+        }
+    }
+
+    [JSInvokable]
+    public void OnWidthChanged(int width)
+    {
+        if (Math.Abs(width - _width) >= 1)
+        {
+            _width = width;
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_observer is not null)
+            {
+                await _observer.InvokeVoidAsync("dispose");
+                await _observer.DisposeAsync();
+            }
+
+            if (_module is not null)
+            {
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // The page is going away; nothing to clean up.
+        }
+
+        _self?.Dispose();
+    }
+}

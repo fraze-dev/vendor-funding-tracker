@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Api.Validation;
+using VendorFunding.Contracts;
 using VendorFunding.Domain;
 using VendorFunding.Infrastructure.Persistence;
 using VendorFunding.Infrastructure.SalesImports;

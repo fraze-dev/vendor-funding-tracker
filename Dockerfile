@@ -7,6 +7,7 @@ WORKDIR /src
 # Restore first, using only project files, so Docker can cache the restore layer between code changes.
 COPY global.json Directory.Build.props ./
 COPY src/VendorFunding.Domain/VendorFunding.Domain.csproj src/VendorFunding.Domain/
+COPY src/VendorFunding.Contracts/VendorFunding.Contracts.csproj src/VendorFunding.Contracts/
 COPY src/VendorFunding.Infrastructure/VendorFunding.Infrastructure.csproj src/VendorFunding.Infrastructure/
 COPY src/VendorFunding.Api/VendorFunding.Api.csproj src/VendorFunding.Api/
 RUN dotnet restore src/VendorFunding.Api/VendorFunding.Api.csproj

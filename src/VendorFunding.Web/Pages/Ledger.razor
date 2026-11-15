@@ -1,0 +1,166 @@
+@page "/ledger"
+@inject FundingApi Api
+
+<PageTitle>Ledger · Vendor Funding Tracker</PageTitle>
+
+<div class="page-head">
+    <h1>Ledger</h1>
+    <p class="muted">Monthly accounting periods close in order. Posted entries are never edited or deleted; corrections are new entries.</p>
+</div>
+
+@if (_periods is null)
+{
+    <LoadingState @key="_attempt" Error="@_error" OnRetry="LoadAsync" />
+}
+else if (_periods.Count == 0)
+{
+    <section class="card"><p class="muted">No accounting periods yet. Run an accrual from the API docs to open the first one.</p></section>
+}
+else
+{
+    <div class="period-picker" role="group" aria-label="Accounting period">
+        @foreach (var p in _periods)
+        {
+            <button class="chip @(p.Period == _selected ? "chip-selected" : "")" aria-pressed="@(p.Period == _selected)"
+                    @onclick="() => SelectAsync(p.Period)">
+                @Format.Month(p.Period)
+                <span class="chip-status">@(p.Status == PeriodStatus.Open ? "Open" : "Closed")</span>
+            </button>
+        }
+    </div>
+
+    @if (_trialBalance is null || _entries is null)
+    {
+        <LoadingState @key="_selected" Error="@_periodError" />
+    }
+    else
+    {
+        <section class="card">
+            <div class="card-head">
+                <div>
+                    <h2>Trial balance</h2>
+                    <p class="muted">Every entry posted through @Format.Date(_trialBalance.AsOf).</p>
+                </div>
+                @if (_trialBalance.IsBalanced)
+                {
+                    <StatusBadge Tone="good" Text="Balanced" />
+                }
+                else
+                {
+                    <StatusBadge Tone="critical" Text="Out of balance" />
+                }
+            </div>
+            <div class="table-scroll"><table class="table">
+                <thead><tr><th>Account</th><th class="num">Debits</th><th class="num">Credits</th><th class="num">Balance</th></tr></thead>
+                <tbody>
+                    @foreach (var a in _trialBalance.Accounts)
+                    {
+                        <tr>
+                            <td><span class="muted">@a.Account</span> @a.Name</td>
+                            <td class="num">@Format.Money(a.Debits)</td>
+                            <td class="num">@Format.Money(a.Credits)</td>
+                            <td class="num">@BalanceText(a.Balance)</td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr><th>Total</th><th class="num">@Format.Money(_trialBalance.TotalDebits)</th><th class="num">@Format.Money(_trialBalance.TotalCredits)</th><th></th></tr>
+                </tfoot>
+            </table></div>
+        </section>
+
+        <section class="card">
+            <h2>Journal entries in @Format.Month(_selected!)</h2>
+            @if (_entries.Count == 0)
+            {
+                <p class="muted">No entries were posted in this period.</p>
+            }
+            else
+            {
+                <div class="table-scroll">
+                    <table class="table">
+                        <thead><tr><th>Entry</th><th>Date</th><th>Type</th><th>Description</th><th>Lines</th></tr></thead>
+                        <tbody>
+                            @foreach (var e in _entries)
+                            {
+                                <tr>
+                                    <td class="muted">@e.EntryNumber</td>
+                                    <td>@Format.Date(e.PostingDate)</td>
+                                    <td>@TypeText(e.Type)</td>
+                                    <td>@e.Description</td>
+                                    <td class="lines">
+                                        @foreach (var l in e.Lines)
+                                        {
+                                            <div class="@(l.Credit > 0 ? "line-credit" : "")">
+                                                @(l.Debit > 0 ? "Dr" : "Cr") @l.Account @l.AccountName
+                                                <span class="num">@Format.Money(l.Debit > 0 ? l.Debit : l.Credit)</span>
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+}
+
+@code {
+    private List<PeriodResponse>? _periods;
+    private string? _selected;
+    private TrialBalanceResponse? _trialBalance;
+    private List<JournalEntryResponse>? _entries;
+    private string? _error;
+    private string? _periodError;
+    private int _attempt;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        (_periods, _error) = (null, null);
+        _attempt++;
+        try
+        {
+            _periods = await Api.GetPeriodsAsync();
+            var initial = _periods.FirstOrDefault(p => p.Status == PeriodStatus.Open) ?? _periods.LastOrDefault();
+            if (initial is not null)
+            {
+                await SelectAsync(initial.Period);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = ex is TaskCanceledException ? "The API didn't respond in time." : ex.Message;
+        }
+    }
+
+    private async Task SelectAsync(string period)
+    {
+        (_selected, _trialBalance, _entries, _periodError) = (period, null, null, null);
+        try
+        {
+            var trialBalance = Api.GetTrialBalanceAsync(period);
+            var entries = Api.GetJournalEntriesAsync(period);
+            await Task.WhenAll(trialBalance, entries);
+            (_trialBalance, _entries) = (trialBalance.Result, entries.Result);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _periodError = ex.Message;
+        }
+    }
+
+    // Debit balances (assets) show as plain amounts; credit balances get a "Cr" suffix, as on a printed trial balance.
+    private static string BalanceText(decimal balance) =>
+        balance >= 0 ? Format.Money(balance) : $"{Format.Money(-balance)} Cr";
+
+    private static string TypeText(JournalEntryType type) => type switch
+    {
+        JournalEntryType.PriorPeriodAdjustment => "Prior-period adjustment",
+        JournalEntryType.CashReceipt => "Cash receipt",
+        _ => "Accrual",
+    };
+}

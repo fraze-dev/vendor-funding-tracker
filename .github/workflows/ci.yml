@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: production
-      url: ${{ steps.release.outputs.url }}
+      url: ${{ steps.infra.outputs.dashboardUrl }}
     concurrency:
       group: deploy-production
       cancel-in-progress: false
@@ -111,7 +111,7 @@ jobs:
                          sqlAdminGroupObjectId="${{ vars.SQL_ADMIN_GROUP_ID }}" \
             --query properties.outputs -o json)
           for key in appUrl sqlServerName sqlServerFqdn databaseName apiIdentityName apiIdentityClientId \
-                     functionAppName functionsIdentityName functionsIdentityClientId; do
+                     functionAppName functionsIdentityName functionsIdentityClientId dashboardName dashboardUrl; do
             echo "$key=$(jq -r ".$key.value" <<< "$outputs")" >> "$GITHUB_OUTPUT"
           done
 
@@ -221,3 +221,41 @@ jobs:
           done
           echo "::error::The smoke-test file wasn't loaded within 5 minutes. Check the Function app's logs and the sales-files and sales-records dead-letter queues."
           exit 1
+
+      - name: Build dashboard
+        run: |
+          dotnet publish src/VendorFunding.Web --configuration Release --output publish/web
+          # Point the dashboard at this environment's API, and drop the precompressed copies of the
+          # template config so they can't be served in place of this one.
+          echo "{ \"ApiBaseUrl\": \"${{ steps.infra.outputs.appUrl }}/\" }" > publish/web/wwwroot/appsettings.json
+          rm -f publish/web/wwwroot/appsettings.json.br publish/web/wwwroot/appsettings.json.gz
+
+      - name: Get the dashboard deployment token
+        run: |
+          # Fetched from Azure at deploy time (the OIDC session can read it), so no token is stored in GitHub.
+          token=$(az staticwebapp secrets list -g "$RESOURCE_GROUP" -n "${{ steps.infra.outputs.dashboardName }}" \
+            --query properties.apiKey -o tsv)
+          echo "::add-mask::$token"
+          echo "SWA_TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: Deploy dashboard
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ env.SWA_TOKEN }}
+          action: upload
+          app_location: publish/web/wwwroot
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Smoke test dashboard
+        run: |
+          dashboard="${{ steps.infra.outputs.dashboardUrl }}"
+          api="${{ steps.release.outputs.url }}"
+          curl -fsS --max-time 30 "$dashboard/" | grep -q "<title>Vendor Funding Tracker</title>"
+          curl -fsS --max-time 30 "$dashboard/appsettings.json" | grep -q "$api"
+          # Deep links load the app too (navigation fallback in staticwebapp.config.json).
+          curl -fsS --max-time 30 -o /dev/null "$dashboard/ledger"
+          # The API allows the dashboard's origin (CORS).
+          curl -fsS --max-time 60 -o /dev/null -D - -X OPTIONS "$api/api/dashboard" \
+            -H "Origin: $dashboard" -H "Access-Control-Request-Method: GET" | grep -qi "access-control-allow-origin: $dashboard"
+          echo "- Dashboard: $dashboard" >> "$GITHUB_STEP_SUMMARY"

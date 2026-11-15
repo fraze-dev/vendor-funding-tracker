@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Contracts;
 using VendorFunding.Domain;
 
 namespace VendorFunding.Api.Tests;

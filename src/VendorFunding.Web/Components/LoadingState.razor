@@ -1,0 +1,44 @@
+@implements IDisposable
+
+@if (Error is not null)
+{
+    <div class="state state-error" role="alert">
+        <p><strong>Couldn't load this.</strong> @Error</p>
+        @if (OnRetry.HasDelegate)
+        {
+            <button class="button" @onclick="OnRetry">Try again</button>
+        }
+    </div>
+}
+else
+{
+    <div class="state" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        @if (_slow)
+        {
+            <span>
+                <strong>Waking up the demo…</strong>
+                The API scales to zero and its database pauses when nobody is using them, which keeps this demo free.
+                The first request after a quiet period can take up to a minute.
+            </span>
+        }
+        else
+        {
+            <span>Loading…</span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? Error { get; set; }
+
+    [Parameter] public EventCallback OnRetry { get; set; }
+
+    private bool _slow;
+    private Timer? _timer;
+
+    protected override void OnInitialized() =>
+        _timer = new Timer(_ => InvokeAsync(() => { _slow = true; StateHasChanged(); }), null, 3_000, Timeout.Infinite);
+
+    public void Dispose() => _timer?.Dispose();
+}

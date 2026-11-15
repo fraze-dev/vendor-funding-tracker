@@ -1,6 +1,6 @@
 using VendorFunding.Domain;
 
-namespace VendorFunding.Api.Contracts;
+namespace VendorFunding.Contracts;
 
 public record VendorResponse(int Id, string VendorNumber, string Name, bool IsActive)
 {

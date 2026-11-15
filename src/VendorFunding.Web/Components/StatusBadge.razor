@@ -1,0 +1,39 @@
+@* Status always pairs an icon with a word, so it never depends on color alone. *@
+<span class="badge badge-@_tone"><span aria-hidden="true">@_icon</span> @Text</span>
+
+@code {
+    [Parameter, EditorRequired] public string Text { get; set; } = "";
+
+    /// <summary>good, warning, critical, or neutral.</summary>
+    [Parameter] public string Tone { get; set; } = "neutral";
+
+    private string _tone = "neutral";
+    private string _icon = "•";
+
+    protected override void OnParametersSet()
+    {
+        _tone = Tone;
+        _icon = Tone switch
+        {
+            "good" => "✓",
+            "warning" => "!",
+            "critical" => "✕",
+            _ => "•",
+        };
+    }
+
+    public static string ToneFor(VendorFunding.Domain.SalesImportStatus status) => status switch
+    {
+        VendorFunding.Domain.SalesImportStatus.Completed => "good",
+        VendorFunding.Domain.SalesImportStatus.CompletedWithErrors => "warning",
+        VendorFunding.Domain.SalesImportStatus.Failed => "critical",
+        _ => "neutral",
+    };
+
+    public static string TextFor(VendorFunding.Domain.SalesImportStatus status) => status switch
+    {
+        VendorFunding.Domain.SalesImportStatus.CompletedWithErrors => "Completed with errors",
+        VendorFunding.Domain.SalesImportStatus.Loading => "Loading",
+        _ => status.ToString(),
+    };
+}
