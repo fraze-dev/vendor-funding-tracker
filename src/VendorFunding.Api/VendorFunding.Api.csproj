@@ -20,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\VendorFunding.Infrastructure\VendorFunding.Infrastructure.csproj" />
     <ProjectReference Include="..\VendorFunding.Domain\VendorFunding.Domain.csproj" />
+    <ProjectReference Include="..\VendorFunding.Contracts\VendorFunding.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

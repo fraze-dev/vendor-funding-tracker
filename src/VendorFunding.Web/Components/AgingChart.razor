@@ -1,0 +1,123 @@
+@using System.Globalization
+@using VendorFunding.Contracts
+
+<section class="card">
+    <div class="card-head">
+        <div>
+            <h2>Receivable aging</h2>
+            <p class="muted">What each vendor still owes, by how long it has been outstanding. Payments settle the oldest amounts first.</p>
+        </div>
+        <button class="link-button" @onclick="() => _showTable = !_showTable">@(_showTable ? "Show bars" : "Show amounts")</button>
+    </div>
+
+    @if (_showTable)
+    {
+        <div class="table-scroll">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Vendor</th>
+                        @foreach (var bucket in Buckets)
+                        {
+                            <th class="num">@bucket.Label</th>
+                        }
+                        <th class="num">Open</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var v in Vendors)
+                    {
+                        <tr>
+                            <td><a href="vendors/@v.VendorId">@v.Name</a></td>
+                            @foreach (var bucket in Buckets)
+                            {
+                                <td class="num">@Format.Money(bucket.Amount(v.Aging))</td>
+                            }
+                            <td class="num"><strong>@Format.Money(v.Aging.Total)</strong></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <ul class="legend" aria-label="Legend">
+            @foreach (var bucket in Buckets)
+            {
+                <li><span class="swatch" style="background: var(@bucket.Color)"></span>@bucket.Label</li>
+            }
+        </ul>
+        <div class="aging">
+            @foreach (var v in Vendors)
+            {
+                <div class="aging-row">
+                    <a class="aging-name" href="vendors/@v.VendorId">@v.Name <span class="muted">@v.VendorNumber</span></a>
+                    @if (v.Aging.Total > 0)
+                    {
+                        <div class="aging-track" role="img" aria-label="@AriaLabel(v)" @onmouseleave="() => _hovered = null">
+                            @foreach (var (bucket, index) in Buckets.Select((b, i) => (b, i)))
+                            {
+                                var amount = bucket.Amount(v.Aging);
+                                if (amount <= 0)
+                                {
+                                    continue;
+                                }
+
+                                var key = (v.VendorId, index);
+                                <div class="aging-seg" style="width: calc(@Pct(amount)% - 2px); background: var(@bucket.Color)"
+                                     @onmouseenter="() => _hovered = key"></div>
+                            }
+                            @if (_hovered is { } h && h.VendorId == v.VendorId)
+                            {
+                                var bucket = Buckets[h.Bucket];
+                                <div class="tooltip tooltip-inline" style="left: @Pct(Offset(v.Aging, h.Bucket))%">
+                                    <span class="swatch" style="background: var(@bucket.Color)"></span>@bucket.Label
+                                    <strong>@Format.Money(bucket.Amount(v.Aging))</strong>
+                                </div>
+                            }
+                        </div>
+                        <div class="aging-total">@Format.Money(v.Aging.Total)</div>
+                    }
+                    else
+                    {
+                        <div class="muted aging-empty">
+                            @(v.UnappliedCredit > 0 ? $"Nothing owed · {Format.Money(v.UnappliedCredit)} credit" : "Nothing owed")
+                        </div>
+                        <div></div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<VendorReceivable> Vendors { get; set; } = [];
+
+    /// <summary>One ordinal blue ramp: darker is older (validated for both light and dark surfaces).</summary>
+    private static readonly AgingBucket[] Buckets =
+    [
+        new("0–30 days", "--age-1", a => a.Current),
+        new("31–60 days", "--age-2", a => a.Days31To60),
+        new("61–90 days", "--age-3", a => a.Days61To90),
+        new("Over 90 days", "--age-4", a => a.Over90),
+    ];
+
+    private bool _showTable;
+    private (int VendorId, int Bucket)? _hovered;
+
+    // Bars share one scale, so a longer bar means a vendor owes more.
+    private decimal MaxOpen => Vendors.Count == 0 ? 0 : Vendors.Max(v => v.Aging.Total);
+
+    private string Pct(decimal amount) =>
+        MaxOpen == 0 ? "0" : (amount / MaxOpen * 100).ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static decimal Offset(AgingResponse aging, int bucket) => Buckets.Take(bucket).Sum(b => b.Amount(aging));
+
+    private static string AriaLabel(VendorReceivable v) =>
+        $"{v.Name} owes {Format.Money(v.Aging.Total)}: " +
+        string.Join(", ", Buckets.Select(b => $"{b.Label} {Format.Money(b.Amount(v.Aging))}"));
+
+    private sealed record AgingBucket(string Label, string Color, Func<AgingResponse, decimal> Amount);
+}

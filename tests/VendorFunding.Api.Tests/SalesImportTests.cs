@@ -6,7 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Contracts;
 using VendorFunding.Domain;
 using VendorFunding.Infrastructure.Persistence;
 using VendorFunding.Infrastructure.SalesImports;

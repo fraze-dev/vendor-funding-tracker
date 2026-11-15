@@ -57,6 +57,25 @@ Content-Type: application/json
   { "storeNumber": "S0001", "sku": "100245", "saleDate": "2026-11-16", "unitsSold": 42, "netSales": 209.58 }
 ]
 
+### ---- Collections ----
+
+### Record a payment (the received date must be in the open period)
+POST {{baseUrl}}/api/vendors/1/payments
+Content-Type: application/json
+
+{
+  "reference": "ACH-20261020-01",
+  "receivedDate": "2026-10-20",
+  "amount": 6000.00,
+  "memo": "Partial payment for Q3 funding"
+}
+
+### A vendor's payments
+GET {{baseUrl}}/api/vendors/1/payments
+
+### Dashboard: earned vs. collected and receivable aging
+GET {{baseUrl}}/api/dashboard
+
 ### ---- Sales file ingestion ----
 
 ### Upload a store's daily sales file (the second row is rejected: wrong date format)

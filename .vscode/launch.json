@@ -7,6 +7,19 @@
       "request": "launch",
       "projectPath": "${workspaceFolder}/src/VendorFunding.Api/VendorFunding.Api.csproj",
       "preLaunchTask": "Start SQL Server"
+    },
+    {
+      "name": "Dashboard (Blazor)",
+      "type": "dotnet",
+      "request": "launch",
+      "projectPath": "${workspaceFolder}/src/VendorFunding.Web/VendorFunding.Web.csproj"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "API + Dashboard",
+      "configurations": ["API (http)", "Dashboard (Blazor)"],
+      "stopAll": true
     }
   ]
 }

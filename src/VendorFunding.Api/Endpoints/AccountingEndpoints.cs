@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Contracts;
 using VendorFunding.Api.Services;
 using VendorFunding.Domain;
 

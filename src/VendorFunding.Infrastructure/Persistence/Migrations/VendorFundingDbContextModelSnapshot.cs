@@ -155,6 +155,9 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<int?>("VendorId")
+                        .HasColumnType("int");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AccountingPeriodId");
@@ -162,6 +165,8 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                     b.HasIndex("DealId");
 
                     b.HasIndex("PostingDate");
+
+                    b.HasIndex("VendorId", "PostingDate");
 
                     b.ToTable("JournalEntries");
                 });
@@ -358,6 +363,53 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                     b.ToTable("Vendors");
                 });
 
+            modelBuilder.Entity("VendorFunding.Domain.VendorPayment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<int>("JournalEntryId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Memo")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateOnly>("ReceivedDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int>("VendorId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("JournalEntryId")
+                        .IsUnique();
+
+                    b.HasIndex("VendorId", "Reference")
+                        .IsUnique();
+
+                    b.ToTable("VendorPayments", t =>
+                        {
+                            t.HasCheckConstraint("CK_VendorPayments_Amount", "[Amount] > 0");
+                        });
+                });
+
             modelBuilder.Entity("VendorFunding.Domain.Deal", b =>
                 {
                     b.HasOne("VendorFunding.Domain.Vendor", "Vendor")
@@ -380,6 +432,11 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                     b.HasOne("VendorFunding.Domain.Deal", "Deal")
                         .WithMany()
                         .HasForeignKey("DealId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("VendorFunding.Domain.Vendor", null)
+                        .WithMany()
+                        .HasForeignKey("VendorId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("AccountingPeriod");
@@ -411,6 +468,25 @@ namespace VendorFunding.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("ImportId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("VendorFunding.Domain.VendorPayment", b =>
+                {
+                    b.HasOne("VendorFunding.Domain.JournalEntry", "JournalEntry")
+                        .WithOne()
+                        .HasForeignKey("VendorFunding.Domain.VendorPayment", "JournalEntryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("VendorFunding.Domain.Vendor", "Vendor")
+                        .WithMany()
+                        .HasForeignKey("VendorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("JournalEntry");
+
+                    b.Navigation("Vendor");
                 });
 
             modelBuilder.Entity("VendorFunding.Domain.JournalEntry", b =>

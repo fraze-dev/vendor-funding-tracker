@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
-using VendorFunding.Api.Contracts;
+using VendorFunding.Contracts;
 using VendorFunding.Domain;
 using VendorFunding.Infrastructure.Persistence;
 

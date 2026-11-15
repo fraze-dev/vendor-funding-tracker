@@ -1,12 +1,15 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/VendorFunding.Api/VendorFunding.Api.csproj" />
+    <Project Path="src/VendorFunding.Contracts/VendorFunding.Contracts.csproj" />
     <Project Path="src/VendorFunding.Domain/VendorFunding.Domain.csproj" />
     <Project Path="src/VendorFunding.Functions/VendorFunding.Functions.csproj" />
     <Project Path="src/VendorFunding.Infrastructure/VendorFunding.Infrastructure.csproj" />
+    <Project Path="src/VendorFunding.Web/VendorFunding.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/VendorFunding.Api.Tests/VendorFunding.Api.Tests.csproj" />
     <Project Path="tests/VendorFunding.Domain.Tests/VendorFunding.Domain.Tests.csproj" />
+    <Project Path="tests/VendorFunding.Web.Tests/VendorFunding.Web.Tests.csproj" />
   </Folder>
 </Solution>

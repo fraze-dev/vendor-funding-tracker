@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/fraze-dev/vendor-funding-tracker/actions/workflows/ci.yml/badge.svg)
 
-A .NET 10 API that tracks vendor promotional funding deals and calculates how much each vendor owes a retailer, based on daily store sales.
+A .NET 10 system that tracks vendor promotional funding deals, calculates how much each vendor owes a retailer from daily store sales, books it in a ledger, and tracks what's been collected. It has an ASP.NET Core API, Azure Functions for sales file ingestion, and a Blazor WebAssembly dashboard.
 
 ## Business context
 
@@ -42,6 +42,35 @@ The rules it follows:
 - **Double-entry is enforced.** Debits must equal credits on every entry, and a database check constraint requires each line to be a single positive debit or credit.
 
 The integration tests walk through a full month-end close (accrue, re-run, close, late sale, adjust) and confirm the trial balance agrees with the funding calculation to the cent.
+
+## Collections and receivable aging
+
+When a vendor pays, the payment is booked against what it owes:
+
+```
+Dr  1010  Cash                             6,000.00
+    Cr  1310  Vendor Funding Receivable           6,000.00
+```
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/vendors/{id}/payments` | Record a payment (reference, received date, amount) in the open period |
+| `GET /api/vendors/{id}/payments` | A vendor's payments |
+| `GET /api/dashboard` | Earned vs. collected by month, and each vendor's receivable aging, in one call |
+
+- **Aging, oldest first.** Payments settle the oldest receivable first (FIFO), and what's left is aged from its posting date into 0–30, 31–60, 61–90 and over 90 days (`ReceivableAging`). Overpayments show as unapplied credit.
+- **Same controls as the ledger.** Payments post only into the open period, can't be future-dated, can't be recorded twice (a unique reference per vendor), and can't be edited or deleted once recorded.
+
+## Dashboard (Blazor WebAssembly)
+
+`src/VendorFunding.Web` is a Blazor WebAssembly app hosted on **Azure Static Web Apps** (free tier). It runs in the browser and calls the API, so the site itself costs nothing and loads instantly even while the API is scaled to zero; a "waking up" message covers the API's cold start.
+
+- **Dashboard:** open receivable, earned, collected and amounts over 60 days; earned vs. collected by month; aging by vendor; recent sales files.
+- **Vendor:** receivable and aging, deals, payment history, and a form to record a payment.
+- **Ledger:** periods, trial balance and journal entries.
+- **Sales files:** upload a CSV and watch it move through the ingestion pipeline.
+
+It shares request and response types with the API through `VendorFunding.Contracts`, so a contract change that breaks the UI breaks the build. The charts are plain SVG with no chart library: colors were checked with a color-vision-deficiency validator, they're drawn at the real pixel width (measured with a `ResizeObserver`), and every chart has hover tooltips and a table view. Components are tested with bUnit.
 
 ## Sales file ingestion
 
@@ -96,12 +125,15 @@ The parsing and loading logic lives in the shared `VendorFunding.Infrastructure`
 src/
   VendorFunding.Domain          Entities and pure business logic (FundingCalculator, AccrualCalculator, JournalEntry,
                                 SalesFileParser). No dependencies.
+  VendorFunding.Contracts       Request and response types shared by the API and the dashboard
   VendorFunding.Infrastructure  EF Core DbContext, SQL Server migrations, demo data seeder, sales file processing
   VendorFunding.Api             ASP.NET Core minimal API, OpenAPI + Scalar docs, health checks
   VendorFunding.Functions       Azure Functions (isolated worker): sales file pipeline and nightly accrual
+  VendorFunding.Web             Blazor WebAssembly dashboard
 tests/
-  VendorFunding.Domain.Tests    Fast unit tests for calculations and parsing
+  VendorFunding.Domain.Tests    Fast unit tests for calculations, aging and parsing
   VendorFunding.Api.Tests       Integration tests against real SQL Server and Azurite via Testcontainers
+  VendorFunding.Web.Tests       bUnit component tests for the dashboard
 ```
 
 ## Running locally
@@ -114,6 +146,12 @@ dotnet run --project src/VendorFunding.Api
 ```
 
 Then open http://localhost:5041/scalar. In Development the API applies migrations and seeds three fictional vendors plus four months of sales data on startup.
+
+For the dashboard, run this in a second terminal and open http://localhost:5280:
+
+```bash
+dotnet run --project src/VendorFunding.Web
+```
 
 File uploads are stored in Azurite locally. Processing them needs Azure Service Bus, so the Functions run in Azure; their logic is covered by the integration tests. To run them locally anyway, see `src/VendorFunding.Functions/local.settings.sample.json`.
 
@@ -152,6 +190,6 @@ One-time setup for a new subscription: `./infra/bootstrap.ps1 -BudgetEmail you@e
 - [x] Generate accrual journal entries (Dr Vendor Receivable / Cr Cost of Goods Sold) with an audit trail
 - [x] Nightly sales file ingestion: Blob Storage → Event Grid → Service Bus → Azure Functions
 - [ ] Billback and off-invoice deal types based on purchase orders
-- [ ] Frontend dashboard: earned vs. collected funding, receivable aging
+- [x] Frontend dashboard: earned vs. collected funding, receivable aging (Blazor WebAssembly + collections)
 - [ ] AI-assisted exception review with Azure OpenAI
 - [ ] 52/53-week retail fiscal calendar

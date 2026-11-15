@@ -13,6 +13,7 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
     public DbSet<JournalLine> JournalLines => Set<JournalLine>();
     public DbSet<SalesImport> SalesImports => Set<SalesImport>();
     public DbSet<SalesImportBatch> SalesImportBatches => Set<SalesImportBatch>();
+    public DbSet<VendorPayment> VendorPayments => Set<VendorPayment>();
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
@@ -26,15 +27,18 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
         return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
     }
 
-    /// <summary>Posted journal entries are the audit trail: they can be added to, never changed or deleted.</summary>
+    /// <summary>
+    /// Posted journal entries and the payments behind them are the audit trail: they can be added to,
+    /// never changed or deleted.
+    /// </summary>
     private void GuardPostedJournalEntries()
     {
         var tampered = ChangeTracker.Entries()
-            .Any(e => e.Entity is JournalEntry or JournalLine && e.State is EntityState.Modified or EntityState.Deleted);
+            .Any(e => e.Entity is JournalEntry or JournalLine or VendorPayment && e.State is EntityState.Modified or EntityState.Deleted);
         if (tampered)
         {
             throw new InvalidOperationException(
-                "Posted journal entries can't be changed or deleted. Post an adjusting entry instead.");
+                "Posted journal entries and payments can't be changed or deleted. Post an adjusting entry instead.");
         }
     }
 
@@ -67,6 +71,18 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
             // Funding calculations filter by item and date range.
             sale.HasIndex(s => new { s.Sku, s.SaleDate }).IncludeProperties(s => s.UnitsSold);
             sale.HasOne<SalesImport>().WithMany().HasForeignKey(s => s.ImportId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<VendorPayment>(payment =>
+        {
+            payment.Property(p => p.Reference).HasMaxLength(30);
+            payment.Property(p => p.Memo).HasMaxLength(200);
+            payment.Property(p => p.Amount).HasPrecision(18, 2);
+            // The same payment can't be recorded twice.
+            payment.HasIndex(p => new { p.VendorId, p.Reference }).IsUnique();
+            payment.HasOne(p => p.Vendor).WithMany().HasForeignKey(p => p.VendorId).OnDelete(DeleteBehavior.Restrict);
+            payment.HasOne(p => p.JournalEntry).WithOne().HasForeignKey<VendorPayment>(p => p.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            payment.ToTable(t => t.HasCheckConstraint("CK_VendorPayments_Amount", "[Amount] > 0"));
         });
 
         modelBuilder.Entity<SalesImport>(import =>
@@ -105,6 +121,9 @@ public class VendorFundingDbContext(DbContextOptions<VendorFundingDbContext> opt
             entry.Property(e => e.CreatedBy).HasMaxLength(100);
             entry.HasOne(e => e.AccountingPeriod).WithMany().HasForeignKey(e => e.AccountingPeriodId).OnDelete(DeleteBehavior.Restrict);
             entry.HasOne(e => e.Deal).WithMany().HasForeignKey(e => e.DealId).OnDelete(DeleteBehavior.Restrict);
+            entry.HasOne<Vendor>().WithMany().HasForeignKey(e => e.VendorId).OnDelete(DeleteBehavior.Restrict);
+            // Receivable aging reads each vendor's entries in date order.
+            entry.HasIndex(e => new { e.VendorId, e.PostingDate });
             entry.HasMany(e => e.Lines).WithOne().HasForeignKey(l => l.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
             entry.HasIndex(e => e.PostingDate);
         });

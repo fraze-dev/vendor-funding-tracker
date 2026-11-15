@@ -1,0 +1,102 @@
+@page "/"
+@inject FundingApi Api
+
+<PageTitle>Dashboard · Vendor Funding Tracker</PageTitle>
+
+<div class="page-head">
+    <h1>Vendor funding</h1>
+    @if (_data is not null)
+    {
+        <p class="muted">
+            As of @Format.Date(_data.AsOf)
+            @if (_data.OpenPeriod is not null)
+            {
+                <span> · Open period <strong>@Format.Month(_data.OpenPeriod)</strong></span>
+            }
+        </p>
+    }
+</div>
+
+@if (_data is null)
+{
+    <LoadingState @key="_attempt" Error="@_error" OnRetry="LoadAsync" />
+}
+else
+{
+    var totals = _data.Totals;
+    <div class="tiles">
+        <StatTile Label="Open receivable" Value="@Format.Money(totals.OpenReceivable)" Hero="true">
+            Earned by vendors but not yet paid
+        </StatTile>
+        <StatTile Label="Earned" Value="@Format.CompactMoney(totals.Earned)">Accrued in the ledger</StatTile>
+        <StatTile Label="Collected" Value="@Format.CompactMoney(totals.Collected)">
+            @(totals.Earned > 0 ? $"{totals.Collected / totals.Earned:P0} of earned" : "No payments yet")
+        </StatTile>
+        <StatTile Label="Over 60 days" Value="@Format.CompactMoney(totals.Over60Days)">
+            @if (totals.Over60Days > 0)
+            {
+                <StatusBadge Tone="warning" Text="Needs follow-up" />
+            }
+            else
+            {
+                <StatusBadge Tone="good" Text="Nothing overdue" />
+            }
+        </StatTile>
+    </div>
+
+    <EarnedVsCollectedChart Data="_data.Monthly" />
+    <AgingChart Vendors="_data.Vendors" />
+
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Recent sales files</h2>
+                <p class="muted">Store files processed through Blob Storage, Event Grid, Service Bus and Azure Functions.</p>
+            </div>
+            <a class="link-button" href="imports">Upload a file</a>
+        </div>
+        @if (_data.RecentImports.Count == 0)
+        {
+            <p class="muted">No files yet.</p>
+        }
+        else
+        {
+            <div class="table-scroll"><table class="table">
+                <thead><tr><th>File</th><th>Received</th><th>Status</th><th class="num">Rows loaded</th></tr></thead>
+                <tbody>
+                    @foreach (var i in _data.RecentImports)
+                    {
+                        <tr>
+                            <td>@i.FileName</td>
+                            <td>@Format.DateTime(i.ReceivedAt)</td>
+                            <td><StatusBadge Tone="@StatusBadge.ToneFor(i.Status)" Text="@StatusBadge.TextFor(i.Status)" /></td>
+                            <td class="num">@i.LoadedRows.ToString("N0") of @i.TotalRows.ToString("N0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table></div>
+        }
+    </section>
+}
+
+@code {
+    private DashboardResponse? _data;
+    private string? _error;
+    private int _attempt;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        (_data, _error) = (null, null);
+        _attempt++;
+        try
+        {
+            _data = await Api.GetDashboardAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = ex is TaskCanceledException ? "The API didn't respond in time." : ex.Message;
+        }
+    }
+}

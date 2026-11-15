@@ -20,6 +20,15 @@ builder.Services.AddDbContext<VendorFundingDbContext>((services, options) =>
 
 builder.Services.AddScoped<FundingSummaryService>();
 builder.Services.AddScoped<AccrualService>();
+builder.Services.AddScoped<CollectionsService>();
+
+// The Blazor dashboard is served from its own domain, so the browser needs CORS to call this API.
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy
+    .WithOrigins(allowedOrigins)
+    .AllowAnyHeader()
+    .AllowAnyMethod()
+    .WithExposedHeaders("Location")));
 builder.Services.AddSingleton(TimeProvider.System);
 // Azurite connection string locally and in tests; account URL + managed identity in Azure.
 builder.Services.AddSingleton(services =>
@@ -56,6 +65,7 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseCors();
 // No UseHttpsRedirection: locally we run plain HTTP, and Azure Container Apps handles HTTPS.
 
 // API docs stay on in every environment because this is a portfolio demo.
@@ -70,6 +80,7 @@ app.MapHealthChecks("/health");
 app.MapVendorEndpoints();
 app.MapSalesEndpoints();
 app.MapAccountingEndpoints();
+app.MapCollectionsEndpoints();
 
 if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {

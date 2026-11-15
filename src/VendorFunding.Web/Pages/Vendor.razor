@@ -1,0 +1,239 @@
+@page "/vendors/{VendorId:int}"
+@inject FundingApi Api
+
+<PageTitle>@(_vendor?.Name ?? "Vendor") · Vendor Funding Tracker</PageTitle>
+
+<p class="crumbs"><a href="">Dashboard</a> / Vendor</p>
+
+@if (_vendor is null || _receivable is null || _dashboard is null)
+{
+    <LoadingState @key="_attempt" Error="@_error" OnRetry="LoadAsync" />
+}
+else
+{
+    <div class="page-head">
+        <h1>@_vendor.Name</h1>
+        <p class="muted">@_vendor.VendorNumber · As of @Format.Date(_dashboard.AsOf)</p>
+    </div>
+
+    <div class="tiles">
+        <StatTile Label="Open receivable" Value="@Format.Money(_receivable.Aging.Total)" Hero="true">
+            @if (_receivable.UnappliedCredit > 0)
+            {
+                <span>Plus @Format.Money(_receivable.UnappliedCredit) unapplied credit</span>
+            }
+            else
+            {
+                <span>Earned but not yet paid</span>
+            }
+        </StatTile>
+        <StatTile Label="Earned" Value="@Format.CompactMoney(_receivable.Earned)">Accrued in the ledger</StatTile>
+        <StatTile Label="Collected" Value="@Format.CompactMoney(_receivable.Collected)">@_payments.Count payment@(_payments.Count == 1 ? "" : "s")</StatTile>
+        <StatTile Label="Over 60 days" Value="@Format.CompactMoney(_receivable.Aging.Days61To90 + _receivable.Aging.Over90)">
+            @if (_receivable.Aging.Days61To90 + _receivable.Aging.Over90 > 0)
+            {
+                <StatusBadge Tone="warning" Text="Needs follow-up" />
+            }
+            else
+            {
+                <StatusBadge Tone="good" Text="Nothing overdue" />
+            }
+        </StatTile>
+    </div>
+
+    <AgingChart Vendors="[_receivable]" />
+
+    <div class="columns">
+        <section class="card">
+            <h2>Record a payment</h2>
+            @if (_dashboard.OpenPeriod is null)
+            {
+                <p class="muted">No accounting period is open, so payments can't be booked right now.</p>
+            }
+            else
+            {
+                <p class="muted">Books <strong>Dr 1010 Cash / Cr 1310 Vendor Funding Receivable</strong> in the open period, @Format.Month(_dashboard.OpenPeriod).</p>
+                <EditForm Model="_form" OnValidSubmit="RecordPaymentAsync" FormName="record-payment">
+                    <div class="form-grid">
+                        <label>
+                            Reference
+                            <InputText @bind-Value="_form.Reference" placeholder="ACH or check number" maxlength="30" required />
+                        </label>
+                        <label>
+                            Received
+                            <InputDate @bind-Value="_form.ReceivedDate" min="@_periodStart" max="@_latestDate" required />
+                        </label>
+                        <label>
+                            Amount ($)
+                            <InputNumber @bind-Value="_form.Amount" step="0.01" min="0.01" required />
+                        </label>
+                        <label class="span-2">
+                            Memo (optional)
+                            <InputText @bind-Value="_form.Memo" maxlength="200" />
+                        </label>
+                    </div>
+                    <button class="button" type="submit" disabled="@_saving">@(_saving ? "Recording…" : "Record payment")</button>
+                </EditForm>
+                @if (_formMessage is not null)
+                {
+                    <p class="form-message @(_formSucceeded ? "form-ok" : "form-error")" role="status">@_formMessage</p>
+                }
+            }
+        </section>
+
+        <section class="card">
+            <h2>Payments</h2>
+            @if (_payments.Count == 0)
+            {
+                <p class="muted">No payments recorded.</p>
+            }
+            else
+            {
+                <div class="table-scroll"><table class="table">
+                    <thead><tr><th>Received</th><th>Reference</th><th class="num">Amount</th><th>Entry</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in _payments)
+                        {
+                            <tr title="@p.Memo">
+                                <td>@Format.Date(p.ReceivedDate)</td>
+                                <td>@p.Reference</td>
+                                <td class="num">@Format.Money(p.Amount)</td>
+                                <td class="muted">@p.EntryNumber</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table></div>
+            }
+        </section>
+    </div>
+
+    <section class="card">
+        <h2>Deals</h2>
+        <div class="table-scroll"><table class="table">
+            <thead><tr><th>Deal</th><th>Type</th><th>Term</th><th>Terms</th></tr></thead>
+            <tbody>
+                @foreach (var d in _deals)
+                {
+                    <tr>
+                        <td><strong>@d.DealNumber</strong> @d.Description</td>
+                        <td>@(d.Type == DealType.ScanDown ? "Scan-down" : "Lump sum")</td>
+                        <td>@Format.Date(d.StartDate) – @Format.Date(d.EndDate)</td>
+                        <td>
+                            @if (d.Type == DealType.ScanDown)
+                            {
+                                <span>@Format.Money(d.RatePerUnit ?? 0) per unit of SKU @d.Sku</span>
+                            }
+                            else
+                            {
+                                <span>@Format.Money(d.LumpSumAmount ?? 0), earned evenly per day</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    </section>
+}
+
+@code {
+    [Parameter] public int VendorId { get; set; }
+
+    private VendorResponse? _vendor;
+    private DashboardResponse? _dashboard;
+    private VendorReceivable? _receivable;
+    private List<DealResponse> _deals = [];
+    private List<VendorPaymentResponse> _payments = [];
+    private string? _error;
+    private int _attempt;
+
+    private readonly PaymentForm _form = new();
+    private bool _saving;
+    private string? _formMessage;
+    private bool _formSucceeded;
+    private string? _periodStart;
+    private string? _latestDate;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        (_vendor, _dashboard, _receivable, _error) = (null, null, null, null);
+        _attempt++;
+        try
+        {
+            // The dashboard call wakes the API first; the rest then run side by side.
+            _dashboard = await Api.GetDashboardAsync();
+            var vendor = Api.GetVendorAsync(VendorId);
+            var deals = Api.GetDealsAsync(VendorId);
+            var payments = Api.GetPaymentsAsync(VendorId);
+            await Task.WhenAll(vendor, deals, payments);
+            (_vendor, _deals, _payments) = (vendor.Result, deals.Result, payments.Result);
+            _receivable = _dashboard.Vendors.FirstOrDefault(v => v.VendorId == VendorId);
+            SetDefaultDate();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.NotFound }
+                ? "That vendor doesn't exist."
+                : ex is TaskCanceledException ? "The API didn't respond in time." : ex.Message;
+        }
+    }
+
+    /// <summary>Payments go into the open period and can't be in the future, so default to the latest allowed day.</summary>
+    private void SetDefaultDate()
+    {
+        if (_dashboard?.OpenPeriod is null || !FiscalPeriod.TryParse(_dashboard.OpenPeriod, out var period))
+        {
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var latest = today < period.Range.End ? today : period.Range.End;
+        _periodStart = period.Range.Start.ToString("yyyy-MM-dd");
+        _latestDate = latest.ToString("yyyy-MM-dd");
+        if (!period.Range.Contains(_form.ReceivedDate))
+        {
+            _form.ReceivedDate = latest;
+        }
+    }
+
+    private async Task RecordPaymentAsync()
+    {
+        _saving = true;
+        _formMessage = null;
+        try
+        {
+            var result = await Api.RecordPaymentAsync(VendorId,
+                new RecordPaymentRequest(_form.Reference.Trim(), _form.ReceivedDate, _form.Amount ?? 0, _form.Memo));
+            _formSucceeded = result.Succeeded;
+            if (result.Value is { } payment)
+            {
+                _formMessage = $"Recorded {payment.Reference} for {Format.Money(payment.Amount)} as {payment.EntryNumber}.";
+                _form.Reference = "";
+                _form.Amount = null;
+                _form.Memo = null;
+                await LoadAsync();
+            }
+            else
+            {
+                _formMessage = result.Error;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            (_formSucceeded, _formMessage) = (false, ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private sealed class PaymentForm
+    {
+        public string Reference { get; set; } = "";
+        public DateOnly ReceivedDate { get; set; }
+        public decimal? Amount { get; set; }
+        public string? Memo { get; set; }
+    }
+}

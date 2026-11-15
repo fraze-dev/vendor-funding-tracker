@@ -4,11 +4,13 @@ namespace VendorFunding.Domain;
 
 public static class ChartOfAccounts
 {
+    public const string Cash = "1010";
     public const string VendorFundingReceivable = "1310";
     public const string CogsVendorAllowances = "5010";
 
     public static string NameOf(string accountNumber) => accountNumber switch
     {
+        Cash => "Cash",
         VendorFundingReceivable => "Vendor Funding Receivable",
         CogsVendorAllowances => "COGS - Vendor Allowances",
         _ => "Unknown account",
@@ -53,6 +55,9 @@ public enum JournalEntryType
 
     /// <summary>Funding for an already-closed period, e.g. from sales reported late. Booked in the open period.</summary>
     PriorPeriodAdjustment,
+
+    /// <summary>A vendor paid funding it owed.</summary>
+    CashReceipt,
 }
 
 /// <summary>A posted journal entry. Posted entries are never changed or deleted; corrections are new entries.</summary>
@@ -66,6 +71,10 @@ public class JournalEntry
     public required string Description { get; set; }
     public int? DealId { get; set; }
     public Deal? Deal { get; set; }
+
+    /// <summary>The vendor whose receivable this entry changes.</summary>
+    public int? VendorId { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
     public required string CreatedBy { get; set; }
     public List<JournalLine> Lines { get; set; } = [];
@@ -97,12 +106,48 @@ public class JournalEntry
             Type = type,
             Description = $"{label}: {deal.DealNumber} {deal.Description}",
             DealId = deal.Id,
+            VendorId = deal.VendorId,
             CreatedAt = createdAt,
             CreatedBy = createdBy,
             Lines =
             [
                 new JournalLine { AccountNumber = debitAccount, Debit = value },
                 new JournalLine { AccountNumber = creditAccount, Credit = value },
+            ],
+        };
+        EnsureBalanced(entry.Lines);
+        return entry;
+    }
+
+    /// <summary>Books a payment from a vendor: Dr Cash / Cr Vendor Funding Receivable, dated the day it was received.</summary>
+    public static JournalEntry ForCashReceipt(
+        AccountingPeriod period, Vendor vendor, DateOnly receivedDate, decimal amount, string reference,
+        string createdBy, DateTimeOffset createdAt)
+    {
+        if (amount <= 0m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "A payment must be greater than zero.");
+        }
+
+        if (!period.Range.Contains(receivedDate))
+        {
+            throw new AccountingRuleException($"{receivedDate:yyyy-MM-dd} is outside {period.Label}.");
+        }
+
+        var value = FundingCalculator.RoundToCents(amount);
+        var entry = new JournalEntry
+        {
+            AccountingPeriod = period,
+            PostingDate = receivedDate,
+            Type = JournalEntryType.CashReceipt,
+            Description = $"Vendor payment {reference}: {vendor.VendorNumber} {vendor.Name}",
+            VendorId = vendor.Id,
+            CreatedAt = createdAt,
+            CreatedBy = createdBy,
+            Lines =
+            [
+                new JournalLine { AccountNumber = ChartOfAccounts.Cash, Debit = value },
+                new JournalLine { AccountNumber = ChartOfAccounts.VendorFundingReceivable, Credit = value },
             ],
         };
         EnsureBalanced(entry.Lines);

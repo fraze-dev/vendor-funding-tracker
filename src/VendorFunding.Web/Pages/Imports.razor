@@ -1,0 +1,196 @@
+@page "/imports"
+@implements IDisposable
+@inject FundingApi Api
+
+<PageTitle>Sales files · Vendor Funding Tracker</PageTitle>
+
+<div class="page-head">
+    <h1>Sales files</h1>
+    <p class="muted">
+        Stores send daily sales as CSV files. Each upload is stored in Blob Storage, which raises an event through
+        Event Grid and Service Bus to Azure Functions that validate and load the rows into SQL.
+    </p>
+</div>
+
+<div class="columns">
+    <section class="card">
+        <h2>Upload a file</h2>
+        <p class="muted">The first line must be <code>@SalesFileParser.ExpectedHeader</code>. Dates use <code class="nowrap">yyyy-MM-dd</code>.</p>
+        <p><a href="@SampleFileHref" download="sample-store-sales.csv">Download a sample file</a> (one row is deliberately invalid).</p>
+        <label class="file-input">
+            <InputFile OnChange="UploadAsync" accept=".csv,text/csv" disabled="@_uploading" />
+        </label>
+        @if (_uploadError is not null)
+        {
+            <p class="form-message form-error" role="alert">@_uploadError</p>
+        }
+
+        @if (_current is not null)
+        {
+            <div class="import-progress" role="status" aria-live="polite">
+                <div class="import-progress-head">
+                    <strong>@_current.FileName</strong>
+                    <StatusBadge Tone="@StatusBadge.ToneFor(_current.Status)" Text="@StatusBadge.TextFor(_current.Status)" />
+                </div>
+                @if (!IsFinished(_current))
+                {
+                    <p class="muted"><span class="spinner" aria-hidden="true"></span> Processing… the Functions may take a moment to start if they've been idle.</p>
+                }
+                else
+                {
+                    <p>
+                        @_current.LoadedRows.ToString("N0") of @_current.TotalRows.ToString("N0") rows loaded
+                        @if (_current.RejectedRows > 0)
+                        {
+                            <span> · @_current.RejectedRows.ToString("N0") rejected</span>
+                        }
+                    </p>
+                    @if (_current.Error is not null)
+                    {
+                        <p class="muted">@_current.Error</p>
+                    }
+                    @if (_current.HasRejects)
+                    {
+                        <p><a href="@Api.RejectsUrl(_current.Id)">Download the rejected rows</a>, with the reason for each.</p>
+                    }
+                }
+            </div>
+        }
+    </section>
+
+    <section class="card">
+        <h2>How it stays reliable</h2>
+        <ul class="plain-list">
+            <li><strong>Queues between steps.</strong> Work waits and retries while the database wakes up, then goes to a dead-letter queue instead of disappearing.</li>
+            <li><strong>Safe to repeat.</strong> Sending the same file twice loads it once, and a redelivered batch is never loaded twice.</li>
+            <li><strong>One bad row doesn't block a store.</strong> Valid rows load; invalid ones are set aside with a reason.</li>
+            <li><strong>No secrets.</strong> Every component signs in with its own managed identity.</li>
+        </ul>
+    </section>
+</div>
+
+<section class="card">
+    <h2>Recent files</h2>
+    @if (_imports is null)
+    {
+        <LoadingState @key="_attempt" Error="@_error" OnRetry="LoadAsync" />
+    }
+    else if (_imports.Count == 0)
+    {
+        <p class="muted">No files yet.</p>
+    }
+    else
+    {
+        <div class="table-scroll"><table class="table">
+            <thead><tr><th>File</th><th>Received</th><th>Status</th><th class="num">Loaded</th><th class="num">Rejected</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var i in _imports)
+                {
+                    <tr>
+                        <td>@i.FileName</td>
+                        <td>@Format.DateTime(i.ReceivedAt)</td>
+                        <td><StatusBadge Tone="@StatusBadge.ToneFor(i.Status)" Text="@StatusBadge.TextFor(i.Status)" /></td>
+                        <td class="num">@i.LoadedRows.ToString("N0")</td>
+                        <td class="num">@i.RejectedRows.ToString("N0")</td>
+                        <td>@if (i.HasRejects) { <a href="@Api.RejectsUrl(i.Id)">Rejects</a> }</td>
+                    </tr>
+                }
+            </tbody>
+        </table></div>
+    }
+</section>
+
+@code {
+    private List<SalesImportResponse>? _imports;
+    private SalesImportResponse? _current;
+    private string? _error;
+    private string? _uploadError;
+    private bool _uploading;
+    private int _attempt;
+    private readonly CancellationTokenSource _disposed = new();
+
+    private static string SampleFileHref
+    {
+        get
+        {
+            var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+            var csv = $"{SalesFileParser.ExpectedHeader}\nS0001,100245,{today},42,209.58\nS0001,200810,{today},18,68.22\nS0002,100245,11/14/2026,3,14.97\n";
+            return "data:text/csv;charset=utf-8," + Uri.EscapeDataString(csv);
+        }
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        (_imports, _error) = (null, null);
+        _attempt++;
+        try
+        {
+            _imports = await Api.GetImportsAsync(_disposed.Token);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = ex is TaskCanceledException ? "The API didn't respond in time." : ex.Message;
+        }
+    }
+
+    private async Task UploadAsync(InputFileChangeEventArgs e)
+    {
+        (_uploadError, _current) = (null, null);
+        if (e.File.Size > FundingApi.MaxUploadBytes)
+        {
+            _uploadError = "Files can be at most 10 MB.";
+            return;
+        }
+
+        _uploading = true;
+        try
+        {
+            var result = await Api.UploadSalesFileAsync(e.File, _disposed.Token);
+            if (result.Value is null)
+            {
+                _uploadError = result.Error;
+                return;
+            }
+
+            _current = result.Value;
+            StateHasChanged();
+            await FollowAsync(_current.Id);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            _uploadError = ex.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            // Left the page.
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    /// <summary>Polls the import until it finishes (or for about three minutes).</summary>
+    private async Task FollowAsync(Guid importId)
+    {
+        for (var i = 0; i < 90 && _current is not null && !IsFinished(_current); i++)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2), _disposed.Token);
+            _current = await Api.GetImportAsync(importId, _disposed.Token);
+            StateHasChanged();
+        }
+
+        await LoadAsync();
+    }
+
+    private static bool IsFinished(SalesImportResponse import) =>
+        import.Status is not (SalesImportStatus.Received or SalesImportStatus.Loading);
+
+    public void Dispose()
+    {
+        _disposed.Cancel();
+        _disposed.Dispose();
+    }
+}

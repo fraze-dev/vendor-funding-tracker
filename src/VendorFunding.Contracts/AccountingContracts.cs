@@ -1,6 +1,6 @@
 using VendorFunding.Domain;
 
-namespace VendorFunding.Api.Contracts;
+namespace VendorFunding.Contracts;
 
 public record PeriodResponse(string Period, PeriodStatus Status, DateTimeOffset? LastAccrualRunAt, DateTimeOffset? ClosedAt)
 {

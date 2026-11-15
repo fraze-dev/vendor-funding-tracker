@@ -1,0 +1,19 @@
+<div class="tile @(Hero ? "tile-hero" : "")">
+    <div class="tile-label">@Label</div>
+    <div class="tile-value">@Value</div>
+    @if (ChildContent is not null)
+    {
+        <div class="tile-note">@ChildContent</div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+
+    /// <summary>The one figure the view leads with. Use on a single tile per page.</summary>
+    [Parameter] public bool Hero { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

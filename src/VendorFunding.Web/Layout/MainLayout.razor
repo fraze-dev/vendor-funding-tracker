@@ -1,0 +1,23 @@
+﻿@inherits LayoutComponentBase
+@inject FundingApi Api
+
+<header class="site-header">
+    <div class="site-header-inner">
+        <a class="brand" href="">Vendor Funding Tracker</a>
+        <nav aria-label="Main">
+            <NavLink href="" Match="NavLinkMatch.All">Dashboard</NavLink>
+            <NavLink href="ledger">Ledger</NavLink>
+            <NavLink href="imports">Sales files</NavLink>
+            <a href="@Api.ApiDocsUrl" target="_blank" rel="noopener">API docs ↗</a>
+            <a href="https://github.com/fraze-dev/vendor-funding-tracker" target="_blank" rel="noopener">GitHub ↗</a>
+        </nav>
+    </div>
+</header>
+
+<main class="page">
+    @Body
+</main>
+
+<footer class="site-footer">
+    Portfolio demo with fictional vendors and sales. Built with Blazor WebAssembly, ASP.NET Core, Azure SQL and Azure Functions.
+</footer>
