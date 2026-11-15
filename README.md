@@ -112,6 +112,7 @@ The parsing and loading logic lives in the shared `VendorFunding.Infrastructure`
 
 ## Live demo
 
+- **Dashboard:** https://jolly-grass-07a41ca10.3.azurestaticapps.net
 - **Interactive API docs:** https://vendor-funding-api.ambitiousforest-135ed071.centralus.azurecontainerapps.io/scalar
 - **Q3 funding for one vendor:** https://vendor-funding-api.ambitiousforest-135ed071.centralus.azurecontainerapps.io/api/vendors/1/funding-summary?period=2026-Q3
 
