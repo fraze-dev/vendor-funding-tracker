@@ -159,6 +159,16 @@ jobs:
         id: release
         run: |
           az containerapp update -g "$RESOURCE_GROUP" -n "$APP_NAME" --image "$IMAGE" -o none
+          # The update returns once the new revision is created, not once it's serving traffic.
+          # Wait for it, or the smoke tests can reach the previous version.
+          for attempt in $(seq 1 30); do
+            revisions=$(az containerapp show -g "$RESOURCE_GROUP" -n "$APP_NAME" \
+              --query "[properties.latestRevisionName, properties.latestReadyRevisionName]" -o tsv | tr '\n' ' ')
+            read -r latest ready <<< "$revisions"
+            if [ "$latest" = "$ready" ]; then echo "Revision $latest is serving traffic."; break; fi
+            echo "Waiting for revision $latest (attempt $attempt)..."
+            sleep 10
+          done
           echo "url=${{ steps.infra.outputs.appUrl }}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke test
@@ -185,7 +195,14 @@ jobs:
           # The run ID makes the content unique, so it isn't treated as a duplicate of an earlier run.
           printf 'store_number,sku,sale_date,units_sold,net_sales\nSMOKE,SMOKE-%s,%s,1,0.01\n' \
             "$GITHUB_RUN_ID" "$(date -u +%F)" > smoke.csv
-          import=$(curl -fsS --max-time 60 -F "file=@smoke.csv;type=text/csv" "$url/api/sales/files")
+          # Retry briefly in case traffic is still moving to the new revision.
+          for attempt in $(seq 1 6); do
+            if import=$(curl -fsS --max-time 60 -F "file=@smoke.csv;type=text/csv" "$url/api/sales/files"); then break; fi
+            echo "Upload failed (attempt $attempt); retrying in 10 seconds..."
+            import=""
+            sleep 10
+          done
+          [ -n "$import" ] || { echo "::error::The smoke-test upload kept failing."; exit 1; }
           id=$(jq -r .id <<< "$import")
           echo "Uploaded import $id; waiting for Event Grid → Service Bus → Functions → SQL..."
           # The Function app may be starting from zero on its first event after a deploy.
